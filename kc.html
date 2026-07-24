@@ -476,11 +476,11 @@ function pointerDown(cx,cy){
   if(input.tapCount>=dodgeRequiredTaps()){ input.dodgeRequested=true; input.tapCount=0; }
   if(state==='title'){
     // タッチ端末向けの隠しコマンド代替：著作権表記を5回連続タップ
-    const copyrightHit = cy > H*0.88 && cy < H*0.96 && cx > W*0.25 && cx < W*0.75;
+    const copyrightHit = cy > H*0.8 && cy < H*1.0 && cx > W*0.1 && cx < W*0.9;
     if(copyrightHit){
-      if(now-secretTapLastTime<600) secretTapCount++; else secretTapCount=1;
+      if(now-secretTapLastTime<900) secretTapCount++; else secretTapCount=1;
       secretTapLastTime = now;
-      if(secretTapCount>=5){ dodgeFreeMode = true; secretTapCount = 0; }
+      if(secretTapCount>=3){ dodgeFreeMode = true; secretTapCount = 0; }
       return; // ゲーム開始はしない
     }
     startGame();
@@ -784,9 +784,10 @@ function spawnSingleEscortEnemy(){
   const tier = Math.random()<0.5 ? TIER_WEAK : TIER_MEDIUM;
   const pattern = stageIndex===0 ? 'march' : 'peel';
   const slotX = (Math.random()-0.5)*(cols-4);
-  const e = makeEnemyBase(slotX, -1, tier);
+  const slotY = -1 - Math.random()*6; // 縦方向にも散らして重なりを防ぐ
+  const e = makeEnemyBase(slotX, slotY, tier);
   e.pattern = pattern;
-  e.x = formation.anchorX + slotX; e.y = -1 - Math.random()*2;
+  e.x = formation.anchorX + slotX; e.y = slotY;
   enemies.push(e);
 }
 
@@ -1165,6 +1166,10 @@ function drawTitle(){
   ctx.fillText('― 3分間タイムアタック ―', W/2, H*0.62);
   ctx.fillStyle='#888'; ctx.font=`${cell*0.45}px monospace`;
   ctx.fillText('© 2026 ZANTEI TECHNOLOGY', W/2, H*0.92);
+  if(secretTapCount>0 && secretTapCount<3){
+    ctx.fillStyle='#555'; ctx.font=`${cell*0.4}px monospace`;
+    ctx.fillText('・'.repeat(secretTapCount), W/2, H*0.97);
+  }
   if(dodgeFreeMode){
     ctx.fillStyle='#66ffcc'; ctx.font=`${cell*0.5}px monospace`;
     ctx.fillText('緊急避難自由モード解禁', W/2, H*0.7);
