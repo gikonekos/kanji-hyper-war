@@ -527,11 +527,9 @@ function updateFormationAnchor(dt){
     if(formation.anchorX > cols/2+4 || formation.anchorX < cols/2-4){
       formation.dir *= -1;
       formation.anchorX = Math.max(cols/2-4, Math.min(cols/2+4, formation.anchorX));
-      formation.anchorY += formation.stepDown;
-      const LOSE_LINE = rows - 3; // 編隊の最下段がここまで来たら強制ゲームオーバー
-      if(formation.anchorY + 4*1.15 >= LOSE_LINE && state==='playing'){
-        endGame('gameover');
-      }
+      // 降下しきったら、そこから先は同じ高さで横移動のみ継続する（強制ゲームオーバーにはしない）
+      const MAX_FORMATION_ANCHOR_Y = rows - 8;
+      formation.anchorY = Math.min(formation.anchorY + formation.stepDown, MAX_FORMATION_ANCHOR_Y);
     }
   } else if(stageIndex===1){
     formation.anchorX = cols/2 + Math.sin(elapsed/1800)*3;
