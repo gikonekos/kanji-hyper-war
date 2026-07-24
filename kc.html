@@ -457,6 +457,7 @@ const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
 let dodgeSuppressNext = false; // 緊急避難直後、1フレームだけ進行判定を抑制するフラグ
+let skipRestOfFrame = false; // ボス撃破直後、同フレームの残り処理（特に敵弾判定）をスキップするフラグ
 let dodgeFreeMode = false; // デバッグ用：コナミコマンドで解禁、回数制限フリー・常時3回クリック
 function dodgeRequiredTaps(){
   if(dodgeFreeMode) return 3;
@@ -843,6 +844,7 @@ function damageEnemy(e, isBoss){
     SFX.destroy();
     if(isBoss){
       bossActive=null;
+      skipRestOfFrame = true; // 撃破直後の同フレームで残存敵弾に当たって即ゲームオーバーになる競合を防ぐ
       if(stageIndex<2){
         stageIndex++;
         stageStartElapsed=elapsed;
@@ -894,7 +896,7 @@ function resetGame(){
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
   input.dodgeRequested=false; dodgeUsesUsed=0; dodgeSuppressNext=false;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
-  stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false;
+  stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false; skipRestOfFrame=false;
   runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
@@ -1129,6 +1131,7 @@ function updateLogic(dt){
   updateEnemies(dt);
   updateBoss(dt);
   updatePlayerBullets(dt);
+  if(skipRestOfFrame){ skipRestOfFrame = false; return; }
   if(updateEnemyBullets(dt)) return;
   updateEffects(dt);
   updateStars(dt);
@@ -1255,21 +1258,21 @@ function drawGame(){
   ctx.fillStyle='#33e0ff'; ctx.fillText('連撃 '+kanjiNum(combo), 10, 8+cell*0.9);
   if(approachActive){
     ctx.textAlign='center'; ctx.fillStyle='#8affc8'; ctx.font=`${cell*0.6}px monospace`;
-    ctx.fillText('冒険篇　残り'+Math.max(0,Math.ceil(approachTimer/1000))+'秒', W/2, 8);
+    ctx.fillText('冒険篇　残り'+kanjiNum(Math.max(0,Math.ceil(approachTimer/1000)))+'秒', W/2, 8);
     ctx.textAlign='left';
   }
 
   const remain=Math.max(0,GAME_DURATION-elapsed), sec=Math.ceil(remain/1000);
   ctx.textAlign='right';
   ctx.fillStyle = sec<=10 ? '#ff3b3b' : '#ffffff';
-  ctx.fillText(String(sec)+'秒', W-10, 8);
+  ctx.fillText(kanjiNum(sec)+'秒', W-10, 8);
 
   ctx.textAlign='left'; ctx.fillStyle='#ff5577';
   let hpStr=''; for(let i=0;i<player.maxHp;i++) hpStr += i<player.hp?'●':'○';
   ctx.fillText(hpStr, 10, H-cell*1.1);
 
   ctx.textAlign='right'; ctx.fillStyle='#99e6ff'; ctx.font=`${cell*0.55}px monospace`;
-  ctx.fillText('緊急避難：連続接触'+dodgeRequiredTaps()+'回'+(dodgeFreeMode?'（自由）':''), W-10, H-cell*1.1);
+  ctx.fillText('緊急避難：連続接触'+kanjiNum(dodgeRequiredTaps())+'回'+(dodgeFreeMode?'（自由）':''), W-10, H-cell*1.1);
   ctx.restore();
 }
 
@@ -1286,7 +1289,7 @@ function drawResult(){
   ctx.font=`${cell*0.8}px monospace`;
   ctx.fillText('最大連撃　'+kanjiNum(comboMax), W/2, H*0.53);
   if(resultReason==='clear'){
-    const cs = (clearTimeMs/1000).toFixed(1);
+    const cs = kanjiNum(Math.round(clearTimeMs/1000));
     ctx.fillStyle='#7fffb0';
     ctx.fillText('制覇時間　'+cs+'秒', W/2, H*0.62);
   }
