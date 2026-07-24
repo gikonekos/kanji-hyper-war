@@ -462,6 +462,7 @@ let dodgeUsesUsed = 0;
 let dodgeSuppressNext = false; // 緊急避難直後、1フレームだけ進行判定を抑制するフラグ
 let skipRestOfFrame = false; // ボス撃破直後、同フレームの残り処理（特に敵弾判定）をスキップするフラグ
 let dodgeFreeMode = false; // デバッグ用：コナミコマンドで解禁、回数制限フリー・常時3回クリック
+let invincibleMode = false; // 隠しモード：著作権表記24回連続タップで解禁、被弾判定を完全無効化
 function dodgeRequiredTaps(){
   if(dodgeFreeMode) return 3;
   const idx = Math.min(dodgeUsesUsed, DODGE_UNIT_SEQUENCE.length-1);
@@ -471,6 +472,9 @@ function toGrid(cx,cy){ return {gx:(cx-(W-cols*cell)/2)/cell, gy:(cy-(H-rows*cel
 const SECRET_TAP_REQUIRED = 16;
 let secretTapCount = 0;
 let secretTapLastTime = 0;
+const INVINCIBLE_TAP_REQUIRED = 24;
+let invincibleTapCount = 0;
+let invincibleTapLastTime = 0;
 function pointerDown(cx,cy){
   ensureAudio();
   input.active=true; input.downTime=performance.now();
@@ -486,6 +490,10 @@ function pointerDown(cx,cy){
       if(now-secretTapLastTime<900) secretTapCount++; else secretTapCount=1;
       secretTapLastTime = now;
       if(secretTapCount>=SECRET_TAP_REQUIRED){ dodgeFreeMode = true; secretTapCount = 0; }
+      // 無敵モード：16回タップ判定とは完全独立のカウンター（別変数・別タイマー）
+      if(now-invincibleTapLastTime<900) invincibleTapCount++; else invincibleTapCount=1;
+      invincibleTapLastTime = now;
+      if(invincibleTapCount>=INVINCIBLE_TAP_REQUIRED){ invincibleMode = true; invincibleTapCount = 0; }
       return; // ゲーム開始はしない
     }
     startGame();
@@ -1123,7 +1131,7 @@ function updateEnemyBullets(dt){
     const b=eBullets[i];
     b.x+=b.vx*dt/1000; b.y+=b.vy*dt/1000;
     if(b.y>rows+1||b.x<-1||b.x>cols+1){ eBullets.splice(i,1); continue; }
-    if(player.invuln<=0){
+    if(player.invuln<=0 && !invincibleMode){
       const r=0.12;
       if(Math.hypot(b.x-player.x,b.y-player.y)<r){
         eBullets.splice(i,1); player.hp-=1; player.invuln=1200; combo=0;
@@ -1208,6 +1216,10 @@ function drawTitle(){
   if(dodgeFreeMode){
     ctx.fillStyle='#66ffcc'; ctx.font=`${cell*0.5}px monospace`;
     ctx.fillText('緊急避難自由モード解禁', W/2, H*0.7);
+  }
+  if(invincibleMode){
+    ctx.fillStyle='#ffcc33'; ctx.font=`${cell*0.5}px monospace`;
+    ctx.fillText('無敵モード解禁', W/2, H*(dodgeFreeMode?0.76:0.7));
   }
   ctx.restore();
 }
@@ -1309,7 +1321,7 @@ function drawGame(){
 
   ctx.textAlign='left'; ctx.fillStyle='#ff5577';
   let hpStr=''; for(let i=0;i<player.maxHp;i++) hpStr += i<player.hp?'●':'○';
-  ctx.fillText(hpStr, 10, H-cell*1.1);
+  ctx.fillText(hpStr + (invincibleMode?'　無敵':''), 10, H-cell*1.1);
 
   ctx.textAlign='right'; ctx.fillStyle='#99e6ff'; ctx.font=`${cell*0.55}px monospace`;
   ctx.fillText('緊急避難：連続接触'+kanjiNum(dodgeRequiredTaps())+'回'+(dodgeFreeMode?'（自由）':''), W-10, H-cell*1.1);
