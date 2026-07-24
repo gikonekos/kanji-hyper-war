@@ -16,11 +16,62 @@
     text-align: center; color: #444; font-family: monospace;
     font-size: 11px; pointer-events: none;
   }
+  #rankOverlay {
+    display: none; position: fixed; inset: 0;
+    align-items: flex-end; justify-content: center;
+    font-family: monospace; color: #fff;
+    pointer-events: none; /* 背景（canvasのタップ操作）を邪魔しない、パネル部分だけ有効化 */
+  }
+  #rankPanel {
+    pointer-events: auto;
+    width: min(92vw, 420px);
+    margin-bottom: 6vh;
+    background: rgba(0,0,0,0.82);
+    border: 1px solid #2a6b4a;
+    border-radius: 6px;
+    padding: 14px 16px;
+    box-sizing: border-box;
+  }
+  #rankScoreLine { color: #ffe14d; font-size: 13px; margin-bottom: 10px; text-align: center; }
+  #rankName {
+    width: 100%; box-sizing: border-box; background: #111; color: #fff;
+    border: 1px solid #3a3a3a; border-radius: 4px; padding: 8px; font-family: monospace;
+    font-size: 14px; margin-bottom: 8px;
+  }
+  #rankBtnRow { display: flex; gap: 8px; }
+  #rankBtnRow button, #rankContinueHint {
+    flex: 1; font-family: monospace; font-size: 13px; padding: 9px 0;
+    background: #123; color: #7fffb0; border: 1px solid #2a6b4a; border-radius: 4px;
+    cursor: pointer;
+  }
+  #rankStatus { text-align: center; font-size: 12px; color: #99e6ff; margin-top: 6px; min-height: 14px; }
+  #rankList h3 { margin: 0 0 8px; font-size: 13px; color: #ffe14d; text-align: center; font-weight: normal; }
+  #rankListItems { list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.7; }
+  #rankListItems li { display: flex; justify-content: space-between; gap: 8px; }
+  #rankContinueHint { display: block; text-align: center; margin-top: 10px; cursor: pointer; }
 </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<div id="hint">タップして開始／ドラッグで移動／長押しで連射／すばやく2回タップで緊急避難（３回）</div>
+<div id="hint">タップして開始／ドラッグで移動／長押しで連射／すばやく2回タップで緊急避難（1回のみ）</div>
+<div id="rankOverlay">
+  <div id="rankPanel">
+    <div id="rankForm">
+      <div id="rankScoreLine"></div>
+      <input id="rankName" maxlength="12" placeholder="名前（省略時は匿名）">
+      <div id="rankBtnRow">
+        <button id="rankSubmitBtn" type="button">送信</button>
+        <button id="rankAnonBtn" type="button">匿名で送信</button>
+      </div>
+      <div id="rankStatus"></div>
+    </div>
+    <div id="rankList" style="display:none;">
+      <h3>ランキング　上位十位</h3>
+      <ol id="rankListItems"></ol>
+      <div id="rankContinueHint">タップで続ける</div>
+    </div>
+  </div>
+</div>
 <script>
 (function(){
 "use strict";
@@ -354,10 +405,8 @@ const V = {
   Q3: sp("O3E7E9E9E5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   Q6: sp("O3B7G9G9G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
   Q7: sp("O3A7A9A9A5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
-
   R1: sp("O3A5R2A5R2A5R2G9G2:O2A5R2A5R2A5R2G9G2:O2E5R2E5R2E5R2D9D2"),
-
-  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D5D3D1D1:R5R2R5R4O2E5E2R5R2R7R4D5D2R1R1:R5R2R5R4O2C5C2R5R2R7R4O1B5B1R1R1"),
+  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D7D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D2R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B3B1R1"),
   S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1R1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R1R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R1R1R1"),
   S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E2R5R2R7R2R7R1")
 };
@@ -501,11 +550,11 @@ function pointerDown(cx,cy){
     startGame();
   }
   else if(state==='result'){
-    if(resultReason==='clear'){ startStaffRoll(); }
+    if(rankingFormActive){ /* ランキング操作中はcanvasタップを無視し、オーバーレイのボタン操作に一本化 */ }
+    else if(resultReason==='clear'){ startStaffRoll(); }
     else { stopSong(); state='title'; }
   }
   else if(state==='staffroll'){ stopSong(); state='title'; }
-  else if(state==='opening'){ state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
@@ -888,7 +937,7 @@ function damageEnemy(e, isBoss){
   if(e.hp<=0){
     const base = isBoss ? 6000 : (e.strokes*20);
     combo++; comboMax=Math.max(comboMax,combo);
-    const multiplier = combo<=8 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-8);
+    const multiplier = combo<=32 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-32);
     const gained = Math.floor(base*multiplier);
     score = Math.min(10000000, score+gained);
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
@@ -952,73 +1001,94 @@ function resetGame(){
   runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
-
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
+
+// ============ グローバルランキング ============
+// Firebase側の実処理（submitScore/getRanking）は末尾の<script type="module">がwindow.KCRankingに公開する。
+// ここではDOM操作とゲーム状態との橋渡しのみを担当する（最小結合）。
+let rankingFormActive = false;
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showRankingForm(){
+  rankingFormActive = true;
+  document.getElementById('rankScoreLine').textContent =
+    `得点　${kanjiNum(score)}　連撃　${kanjiNum(comboMax)}　時間　${kanjiNum(Math.round(clearTimeMs/1000))}秒`;
+  document.getElementById('rankName').value = '';
+  document.getElementById('rankStatus').textContent = '';
+  document.getElementById('rankForm').style.display = 'block';
+  document.getElementById('rankList').style.display = 'none';
+  document.getElementById('rankOverlay').style.display = 'flex';
+}
+
+async function submitRanking(name){
+  const submitBtn = document.getElementById('rankSubmitBtn');
+  const anonBtn = document.getElementById('rankAnonBtn');
+  const statusEl = document.getElementById('rankStatus');
+  if(!window.KCRanking){ statusEl.textContent='ランキング機能を準備中です'; return; }
+  submitBtn.disabled = true; anonBtn.disabled = true;
+  statusEl.textContent = '送信中…';
+  try{
+    await window.KCRanking.submitScore(name, score, comboMax, clearTimeMs, runUsedFreeMode);
+    statusEl.textContent = '';
+    document.getElementById('rankForm').style.display = 'none';
+    document.getElementById('rankList').style.display = 'block';
+    await refreshRankingList();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '送信に失敗しました（時間をおいて再度お試しください）';
+  }
+  submitBtn.disabled = false; anonBtn.disabled = false;
+}
+
+async function refreshRankingList(){
+  const itemsEl = document.getElementById('rankListItems');
+  itemsEl.innerHTML = '<li>読み込み中…</li>';
+  try{
+    const top10 = await window.KCRanking.getRanking();
+    itemsEl.innerHTML = top10.length ? top10.map((r,i)=>
+      `<li><span>${i+1}位　${escapeHtml(r.name||'匿名')}${r.usedFreeMode?'　★':''}</span><span>${kanjiNum(r.score)}点　${(r.clearTimeMs/1000).toFixed(1)}秒</span></li>`
+    ).join('') : '<li>まだ記録がありません</li>';
+  }catch(err){
+    console.error(err);
+    itemsEl.innerHTML = '<li>読み込みに失敗しました</li>';
+  }
+}
+
+function hideRankingOverlay(){
+  document.getElementById('rankOverlay').style.display = 'none';
+  rankingFormActive = false;
+  resultClearTimer = 0; // オーバーレイを閉じた時点から改めて猶予を与える
+}
+
+document.getElementById('rankSubmitBtn').addEventListener('click', ()=>{
+  submitRanking(document.getElementById('rankName').value);
+});
+document.getElementById('rankAnonBtn').addEventListener('click', ()=>{
+  submitRanking('');
+});
+document.getElementById('rankContinueHint').addEventListener('click', hideRankingOverlay);
+
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
-  if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
+  if(reason==='clear'){ playVezarLoop(); showRankingForm(); } else { stopSong(); }
 }
 
-// ============ オープニング ============
-const OPENING_LINES = [
-  'AIシステムが',
-  '未知のウイルスに感染。',
-  '漢字データが暴走！',
-  '汚染された文字を',
-  '消去せよ！'
-];
-const OPENING_LINE_UNIT_LINES = 10; // 行間：8行分の改行ぶんの空きを取る
-const OPENING_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
-const OPENING_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
-let OpeningTimer = 0;
-let OpeningScrollMs = 16000;  // startOpeningで内容量に応じて動的に再計算される
-let OpeningLineHeight = 0;
-let OpeningTotalHeight = 0;
-
-function startOpening(){
-  state='opening'; OpeningTimer = 0;
-  OpeningLineHeight = cell*0.9*OPENING_LINE_UNIT_LINES;
-  OpeningTotalHeight = OPENING_LINES.length*OpeningLineHeight;
-  const distance = H + OpeningTotalHeight + cell*4;
-  OpeningScrollMs = distance * OPENING_SPEED_MS_PER_CELL / cell;
-}
-
-// ============ エンディング・スタッフロール ============
+// ============ スタッフロール ============
 const STAFF_ROLL_LINES = [
-  '暴走した漢字は消えた。',
-  'AIも停止した。',
-  '　',
-  'しかし……',
-  '　',
-  'AIにウイルスを作らせた',
-  '人間は',
-  '今もどこかで',
-  '新たな命令を入力している。',
-  '　',
-  '原案・言葉遊び文化',
-  'あやしいわーるど',
-  '監督・企画',
-  '基建吉（擬古猫）',
-  'ストーリー',
-  'ChatGPT（OpenAI）',
-  'プログラム',
-  'Claude（Anthropic）',
-  'Grok（xAI）',
-  '音楽',
-  'Dash!／VEZAR',
-  '基建吉（PC-E500 PLAY3）',
-  'プロムナード',
-  'ムソルグスキー',
-  '「展覧会の絵」より編曲',
-  '協力',
-  'ChatGPT',
-  'デバッグ',
-  'ChatGPT／Gemini',
-  'Special Thanks',
-  'All Players!',
+  '原案・言葉遊び文化　あやしいわーるど',
+  '監督・企画　基建吉（擬古猫）',
+  'プログラム　Claude（Anthropic）',
+  '音楽　Dash!／VEZAR（PC-E500 PLAY3、基建吉）',
+  '　　　プロムナード（ムソルグスキー「展覧会の絵」より編曲）',
+  '協力　ChatGPT',
+  'デバッグ　ChatGPT／Gemini',
+  'Special Thanks　Gemini／Grok',
   '© 2026 ZANTEI TECHNOLOGY'
 ];
-const STAFF_ROLL_LINE_UNIT_LINES = 10; // 行間：8行分の改行ぶんの空きを取る
+const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る
 const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
 const STAFF_ROLL_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
 const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
@@ -1027,7 +1097,6 @@ let staffRollScrollMs = 16000;  // startStaffRollで内容量に応じて動的�
 let staffRollLineHeight = 0;
 let staffRollTotalHeight = 0;
 let resultClearTimer = 0;
-
 function startStaffRoll(){
   state='staffroll'; staffRollTimer = 0;
   staffRollLineHeight = cell*0.9*STAFF_ROLL_LINE_UNIT_LINES;
@@ -1253,18 +1322,13 @@ function updateStars(dt){
 }
 
 function updateLogic(dt){
-  if(state==='opening'){
-    OpeningTimer += dt;
-    if(OpeningTimer >= OpeningScrollMs + OPENING_HOLD_MS){ state='title'; }
-    return;
-  }
   if(state==='warning'){
     bossClearTimer -= dt;
     if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
     return;
   }
   if(state==='result'){
-    if(resultReason==='clear'){
+    if(resultReason==='clear' && !rankingFormActive){
       resultClearTimer += dt;
       if(resultClearTimer >= RESULT_TO_STAFFROLL_MS){ startStaffRoll(); }
     }
@@ -1304,7 +1368,6 @@ function draw(){
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
   else if(state==='staffroll') drawStaffRoll();
-  else if(state==='opening') drawOpening();
 }
 
 function drawStars(){
@@ -1467,29 +1530,6 @@ function drawStaffRoll(){
   ctx.restore();
 }
 
-function drawOpening(){
-  ctx.save();
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  const lineHeight = OpeningLineHeight;
-  const totalHeight = OpeningTotalHeight;
-  const startY = H + cell*2;
-  const endY = -totalHeight - cell*2;
-  const t = Math.min(1, OpeningTimer/OpeningScrollMs);
-  const baseY = startY + (endY-startY)*t;
-  ctx.font=`${cell*0.75}px monospace`;
-  OPENING_LINES.forEach((line,i)=>{
-    const y = baseY + i*lineHeight;
-    if(y > -lineHeight && y < H+lineHeight){
-      ctx.fillStyle = '#fff';
-      ctx.fillText(line, W/2, y);
-    }
-  });
-  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
-  ctx.fillText('タップで開始', W/2, H*0.95);
-  ctx.restore();
-}
-
 function drawResult(){
   ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
@@ -1521,10 +1561,65 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 resize();
-startOpening();
 requestAnimationFrame(frame);
 
 })();
+</script>
+
+<script type="module">
+  // ============ グローバルランキング（Firebase Firestore） ============
+  // ここは独立したモジュールとして、window.KCRanking = { submitScore, getRanking } のみを
+  // 上のゲーム本体スクリプトへ公開する。ゲーム側の変更は最小限（呼び出しの2関数のみ）。
+
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // ⚠️ 下記はご自身のFirebaseプロジェクトの設定値に置き換えてください
+  // （Firebaseコンソール → プロジェクトの設定 → 全般 → マイアプリ → 「SDK の設定と構成」）
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const RANKING_COLLECTION = "kanjichosen_ranking";
+  const MAX_NAME_LEN = 12;
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  async function submitScore(name, score, comboMax, clearTimeMs, usedFreeMode){
+    const safeName = (name && String(name).trim()) ? String(name).trim().slice(0, MAX_NAME_LEN) : "匿名";
+    await addDoc(collection(db, RANKING_COLLECTION), {
+      name: safeName,
+      score: Math.max(0, Math.floor(score)),
+      comboMax: Math.max(0, Math.floor(comboMax)),
+      clearTimeMs: Math.max(0, Math.floor(clearTimeMs)),
+      usedFreeMode: !!usedFreeMode,
+      createdAt: serverTimestamp()
+    });
+  }
+
+  async function getRanking(){
+    // スコア降順→同スコアなら時間昇順。複合クエリのため初回実行時に
+    // Firestoreコンソールへ複合インデックス作成を促すリンクがエラーに表示されるので、
+    // それをクリックして一度だけインデックスを作成してください。
+    const q = query(
+      collection(db, RANKING_COLLECTION),
+      orderBy("score", "desc"),
+      orderBy("clearTimeMs", "asc"),
+      limit(10)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data());
+  }
+
+  window.KCRanking = { submitScore, getRanking };
 </script>
 </body>
 </html>
