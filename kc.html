@@ -215,23 +215,51 @@ function parseMMLPart(str, state){
 
 function scheduleSong(actx, segments, tempo, loop, gainVal){
   gainVal = gainVal!==undefined?gainVal:0.13;
-  // segments: [[p1str,p2str,p3str], ...]。1要素＝原曲PLAY文1行（≒1小節）として扱う。
-  // 元のPLAY3仕様通り、各小節ごとに一番長いパートを基準に他パートは休符待機してから
-  // 次の小節へ進む（パート間のズレを防止）。オクターブ/デフォルト音長は小節をまたいで引き継ぐ。
-  // ここでは「暗黙のズレ吸収」ではなく、足りない分の休符イベントを明示的に追加している
-  // （Dash!/プロムナード/VEZAR共通。どの曲・どの小節でも同じ処理が適用される）。
+  // 手順は2段階：
+  // ①MMLを行（元のPLAY文1行）単位で解析し、パート間で足りない分を休符として明示的に追加する
+  // ②休符補完済みの3パートを1本ずつの連続イベント列にまとめ、全音符（whole note）1つ分の
+  //   長さで改めて分割し直す。これをスケジューリングの最小単位（小節）として扱う。
+  //   → 元のPLAY文の行の長さに引きずられた不自然な休符（例：プロムナードのF9D9C9のような
+  //   全音符の連続）が解消される。
   const partStates = [{oct:3,defLen:5},{oct:3,defLen:5},{oct:3,defLen:5}];
-  const segEvents = segments.map(seg => {
+
+  // ①行ごとに解析＋休符補完し、3パート分の連続ストリームへ結合
+  const streams = [[],[],[]];
+  segments.forEach(seg=>{
     const parts = seg.map((s,k)=>
       parseMMLPart(s||'', partStates[k]).map(ev=>({freq:ev.freq, ms:durMs(ev.len,tempo)}))
     );
     const lineDurMs = Math.max(...parts.map(evs=>evs.reduce((sum,e)=>sum+e.ms,0)));
-    parts.forEach(evs=>{
+    parts.forEach((evs,k)=>{
       const durMsSum = evs.reduce((sum,e)=>sum+e.ms,0);
       if(lineDurMs - durMsSum > 0.01) evs.push({freq:0, ms:lineDurMs-durMsSum}); // 足りない分を休符で明示的に補完
+      streams[k].push(...evs);
     });
-    return parts;
   });
+
+  // ②全音符1つ分の長さで小節に分割し直す
+  const wholeNoteMs = durMs(9, tempo); // 9 = 全音符
+  const cursors = [0,0,0];
+  const bars = [];
+  let more = true;
+  while(more){
+    more = false;
+    const bar = [[],[],[]];
+    for(let k=0;k<3;k++){
+      let acc = 0;
+      while(cursors[k] < streams[k].length && acc < wholeNoteMs - 0.01){
+        const ev = streams[k][cursors[k]];
+        bar[k].push(ev);
+        acc += ev.ms;
+        cursors[k]++;
+      }
+      if(cursors[k] < streams[k].length) more = true;
+    }
+    if(bar[0].length || bar[1].length || bar[2].length) bars.push(bar);
+    else break;
+  }
+  const segEvents = bars;
+
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
 
