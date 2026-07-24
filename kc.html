@@ -742,7 +742,7 @@ function setupFormationForStage(){
     // 第二形態：編隊は降下しない。個々（または複数同時）が急降下→
     // 画面下から出たら上に戻る（ラップアラウンド）、たまに宙返りで戻る。
     // 同時攻撃数の上限：ギャラクシアン＝4体
-    const colsN = 10, rowsN=3, spacing=1.15;
+    const colsN = 10, rowsN=5, spacing=1.15; // 要望対応：3列→5列に増加
     for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
       const tier = r===0?TIER_MEDIUM:TIER_WEAK;
       const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.1, tier);
@@ -989,7 +989,7 @@ function fireAimedBullet(e,speed){
   eBullets.push({x:e.x,y:e.y,vx:dx/d*speed,vy:dy/d*speed,color});
 }
 function fireHomingBullets(e,n,speed){
-  n = Math.min(n,4); // 要望：追尾弾は数を少なく抑える（最大4発）
+  n = Math.min(n,2); // 要望対応：追尾弾は強すぎたため2発までに削減
   const color = e.color || '#ff3b3b';
   for(let i=0;i<n;i++){
     const spread = n>1 ? (i-(n-1)/2)*0.5 : 0;
@@ -1328,7 +1328,7 @@ const BOSS_STAGE_CONFIG = [
     fireInterval: 380,
     fire(b, elapsed){
       fireRadialBullets(b, 5, 4.5, elapsed/450);  // 10 → 5 に半減
-      fireHomingBullets(b, 4, 5.5); // 追尾弾（少なめ・最大4発）
+      fireHomingBullets(b, 2, 5.5); // 追尾弾（強すぎたため2発に削減）
     }
   }
 ];
