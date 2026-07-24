@@ -1375,7 +1375,7 @@ function updateBossProgression(){
     spawnStage0Wave(); // 2ウェーブ目
     return false;
   }
-  if(formationCleared || (elapsed-stageStartElapsed)>=BOSS_SAFETY_TIMEOUT){
+  if(formationCleared || (gameMode==='timeattack' && (elapsed-stageStartElapsed)>=BOSS_SAFETY_TIMEOUT)){
     bossSpawnedFor[stageIndex]=true;
     triggerBossSequence();
     return true; // このフレームはここで打ち切り
