@@ -256,13 +256,13 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
   // 先読みバッファ方式：常に一定秒数分は予約済みにしておくことで、
   // JSスレッドの一時停止（GC・描画・省電力など）があっても無音が生じないようにする。
   // setTimeoutの発火タイミング精度そのものには依存しない設計。
-  const BUFFER_AHEAD_SEC = 20;
+  const BUFFER_AHEAD_SEC = 90;
   let scheduledUntil = actx.currentTime + 0.05;
   let watchdog = null;
   function fillBuffer(){
     if(stopped) return;
     let guard = 0;
-    while(scheduledUntil < actx.currentTime + BUFFER_AHEAD_SEC && guard < 50){
+    while(scheduledUntil < actx.currentTime + BUFFER_AHEAD_SEC && guard < 80){
       scheduledUntil = scheduleOneIteration(scheduledUntil);
       guard++;
       if(!loop) break; // ループしない曲は1周だけスケジュールして終わり
@@ -274,7 +274,7 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
     watchdog = setInterval(()=>{
       if(stopped){ clearInterval(watchdog); return; }
       fillBuffer();
-    }, 3000);
+    }, 10000);
   }
   return {
     stop(){
@@ -455,7 +455,7 @@ let bossSpawnedFor=[false,false,false];
 let bossActive=null;
 let bossClearTimer=0;
 let bossPending=null;
-let score=0, combo=0, comboMax=0, resultReason='', clearTimeMs=0;
+let score=0, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMode=false;
 
 const player={x:cols/2,y:rows-2,hp:5,maxHp:5,invuln:0,fireTimer:0};
 let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
@@ -800,6 +800,7 @@ function resetGame(){
   input.dodgeRequested=false; dodgeUsesUsed=0; dodgeSuppressNext=false;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
   stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false;
+  runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
@@ -1092,7 +1093,7 @@ function drawResult(){
   ctx.fillStyle = resultReason==='gameover' ? '#ff5555' : (resultReason==='clear' ? '#ffe14d' : '#ffdd55');
   ctx.font=`bold ${cell*1.6}px monospace`;
   const title = resultReason==='gameover' ? '全滅' : (resultReason==='clear' ? '制覇' : '時間切れ');
-  ctx.fillText(title, W/2, H*0.32);
+  ctx.fillText(title+(runUsedFreeMode?'　★':''), W/2, H*0.32);
   ctx.fillStyle='#fff'; ctx.font=`${cell*1}px monospace`;
   ctx.fillText('得点　'+kanjiNum(score), W/2, H*0.44);
   ctx.font=`${cell*0.8}px monospace`;
