@@ -605,10 +605,17 @@ function updateFormationAnchor(dt){
       leftBound = Math.max(1 - minSlotX, 1);
       rightBound = Math.min(cols-1 - maxSlotX, cols-1);
       if(leftBound>rightBound){ const m=(leftBound+rightBound)/2; leftBound=m; rightBound=m; }
+      // 残存編隊が密集すると移動範囲が極端に狭くなり、降下（stepDown）が暴走するのを防ぐため最低移動幅を確保
+      const MIN_SPAN = 4;
+      if(rightBound-leftBound < MIN_SPAN){
+        const c = (leftBound+rightBound)/2;
+        leftBound = Math.max(1, c-MIN_SPAN/2);
+        rightBound = Math.min(cols-1, c+MIN_SPAN/2);
+      }
     }
-    // インベーダー仕様：残数が減るほど加速する（初期数に対する残存比率で速度倍率を決める）
-    const ratio = stage0WaveInitialCount>0 ? Math.max(0.05, marchers.length/stage0WaveInitialCount) : 1;
-    const speedMul = 1 + (1-ratio)*2.5;
+    // インベーダー仕様：残数が減るほど加速する（初期数に対する残存比率で速度倍率を決める。上限は抑えめに）
+    const ratio = stage0WaveInitialCount>0 ? Math.max(0.1, marchers.length/stage0WaveInitialCount) : 1;
+    const speedMul = 1 + (1-ratio)*1.2;
     formation.anchorX += formation.dir * dt/1000*2.2*speedMul;
     if(formation.anchorX > rightBound || formation.anchorX < leftBound){
       formation.dir *= -1;
@@ -753,7 +760,7 @@ function resetGame(){
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
 function endGame(reason){
   state='result'; resultReason=reason;
-  if(reason==='timeup' || reason==='clear'){ playVezarLoop(); } else { stopSong(); }
+  if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
 }
 
 const LOGIC_STEP=1000/60;
