@@ -1053,7 +1053,7 @@ function updateBoss(dt){
     if(spawningAllowed){
       bossEscortSpawnTimer -= dt;
       if(bossEscortSpawnTimer<=0){
-        spawnSingleEscortEnemy();
+        spawnApproachEnemy(); // 冒険モードそのまま：上から下に流れる敵
         bossEscortCycleSpawned++;
         bossEscortSpawnTimer = 300+Math.random()*200;
       }
