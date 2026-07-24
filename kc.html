@@ -355,9 +355,9 @@ const V = {
   Q6: sp("O3B7G9G9G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
   Q7: sp("O3A7A9A9A5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   R1: sp("O3A5R2A5R2A5R2G9G2:O2A5R2A5R2A5R2G9G2:O2E5R2E5R2E5R2D9D2"),
-  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D7D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D2R5R2R7R3R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B5B2R5R2R7R3R1R1"),
-  S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R7R3R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R7R3R1R1"),
-  S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E5R5R2R7R2R7R2R2R1")
+  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D7D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D2R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B3B1R1"),
+  S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1R1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R1R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R1R1R1"),
+  S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E2R5R2R7R2R7R1")
 };
 function buildVezarSegments(){
   const seg=[]; // 各要素は [p1str,p2str,p3str]（原曲のPLAY文1行分）
@@ -951,7 +951,7 @@ function resetGame(){
 }
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
 function endGame(reason){
-  state='result'; resultReason=reason;
+  state='result'; resultReason=reason; resultClearTimer=0;
   if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
 }
 
@@ -967,10 +967,22 @@ const STAFF_ROLL_LINES = [
   'Special Thanks　Gemini／Grok',
   '© 2026 ZANTEI TECHNOLOGY'
 ];
-const STAFF_ROLL_SCROLL_MS = 16000; // スクロールにかける時間
-const STAFF_ROLL_HOLD_MS = 1500;    // スクロール完了後、自動で題名へ戻るまでの待機
+const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る
+const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
+const STAFF_ROLL_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
+const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
 let staffRollTimer = 0;
-function startStaffRoll(){ state='staffroll'; staffRollTimer = 0; }
+let staffRollScrollMs = 16000;  // startStaffRollで内容量に応じて動的に再計算される
+let staffRollLineHeight = 0;
+let staffRollTotalHeight = 0;
+let resultClearTimer = 0;
+function startStaffRoll(){
+  state='staffroll'; staffRollTimer = 0;
+  staffRollLineHeight = cell*0.9*STAFF_ROLL_LINE_UNIT_LINES;
+  staffRollTotalHeight = STAFF_ROLL_LINES.length*staffRollLineHeight;
+  const distance = H + staffRollTotalHeight + cell*4;
+  staffRollScrollMs = distance * STAFF_ROLL_SPEED_MS_PER_CELL / cell;
+}
 
 const LOGIC_STEP=1000/60;
 let logicAccum=0, lastTime=performance.now();
@@ -1073,8 +1085,9 @@ function updateDodge(){
 
 function updatePlayerMovement(dt){
   if(input.active){
+    const TOUCH_OFFSET_Y = 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
-    const ty=Math.max(0.5,Math.min(rows-0.5,input.y));
+    const ty=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
     player.x += (tx-player.x)*0.35;
     player.y += (ty-player.y)*0.35;
   }
@@ -1193,9 +1206,16 @@ function updateLogic(dt){
     if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
     return;
   }
+  if(state==='result'){
+    if(resultReason==='clear'){
+      resultClearTimer += dt;
+      if(resultClearTimer >= RESULT_TO_STAFFROLL_MS){ startStaffRoll(); }
+    }
+    return;
+  }
   if(state==='staffroll'){
     staffRollTimer += dt;
-    if(staffRollTimer >= STAFF_ROLL_SCROLL_MS + STAFF_ROLL_HOLD_MS){ stopSong(); state='title'; }
+    if(staffRollTimer >= staffRollScrollMs + STAFF_ROLL_HOLD_MS){ stopSong(); state='title'; }
     return;
   }
   if(state!=='playing') return;
@@ -1370,11 +1390,11 @@ function drawStaffRoll(){
   ctx.save();
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const lineHeight = cell*1.5;
-  const totalHeight = STAFF_ROLL_LINES.length*lineHeight;
+  const lineHeight = staffRollLineHeight;
+  const totalHeight = staffRollTotalHeight;
   const startY = H + cell*2;
   const endY = -totalHeight - cell*2;
-  const t = Math.min(1, staffRollTimer/STAFF_ROLL_SCROLL_MS);
+  const t = Math.min(1, staffRollTimer/staffRollScrollMs);
   const baseY = startY + (endY-startY)*t;
   ctx.font=`${cell*0.75}px monospace`;
   STAFF_ROLL_LINES.forEach((line,i)=>{
