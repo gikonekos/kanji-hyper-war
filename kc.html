@@ -1657,18 +1657,16 @@ function updateLogic(dt){
   if(gameMode==='timeattack' && !demoActive && elapsed>=GAME_DURATION){ endGame('timeup'); return; }
 
   if(demoActive){
-    demoMoveTimer -= dt;
-    if(demoMoveTimer<=0){
-      input.active = true;
-      const rangeCells = 20/cell; // 要望対応：現在地から20ドット以内の移動に制限（ワープ感の解消）
-      const ang = Math.random()*Math.PI*2, dist = Math.random()*rangeCells;
-      const nx = player.x + Math.cos(ang)*dist;
-      const ny = player.y + Math.sin(ang)*dist;
-      input.x = Math.max(0.5, Math.min(cols-0.5, nx));
-      input.y = Math.max(0.5, Math.min(rows-0.5, ny));
-      input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
-      demoMoveTimer = 1000; // 要望対応：1秒ごとに乱数で移動
-    }
+    // 要望対応：1秒に1回の目標地点更新→毎フレーム更新に変更（現在地から最大20px範囲で乱数選択）。
+    // 「移動しては止まる」の1秒周期がカクつきの原因だったため、毎フレーム小刻みに更新し連続的な動きにする。
+    input.active = true;
+    const rangeCells = 20/cell;
+    const ang = Math.random()*Math.PI*2, dist = Math.random()*rangeCells;
+    const nx = player.x + Math.cos(ang)*dist;
+    const ny = player.y + Math.sin(ang)*dist;
+    input.x = Math.max(0.5, Math.min(cols-0.5, nx));
+    input.y = Math.max(0.5, Math.min(rows-0.5, ny));
+    input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
   }
 
   updateApproachPhase(dt);
