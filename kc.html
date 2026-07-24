@@ -523,12 +523,12 @@ const input = { active:false,x:0,y:0,downTime:0,lastTapTime:0,tapCount:0,dodgeRe
 
 // ============ アトラクトモード（無操作デモループ） ============
 let idleTimer = 0;
-const ATTRACT_START_IDLE_MS = 15000; // 題名で何もしない状態が続いたらループ開始
+const ATTRACT_START_IDLE_MS = 10000; // 題名で何もしない状態が続いたらループ開始（要望対応：15秒→10秒）
 let attractMode = false;
 let attractPhase = 'title'; // 'title' | 'ranking' | 'demo' | 'demoover'
 let attractPhaseTimer = 0;
-const ATTRACT_TITLE_MS = 30000;
-const ATTRACT_RANKING_MS = 30000;
+const ATTRACT_TITLE_MS = 10000; // 要望対応：30秒→10秒
+const ATTRACT_RANKING_MS = 10000; // 要望対応：30秒→10秒
 const ATTRACT_DEMO_OVER_MS = 1000;
 let demoActive = false;
 let demoMoveTimer = 0;
@@ -919,17 +919,17 @@ function updateFormationAnchor(dt){
 }
 
 let lastBossChar = null;
+let bossCharsUsedThisRun = new Set(); // 1プレイ内でボス漢字が重複しないようにする
 function triggerBossSequence(){
   enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff'));
   enemies = [];
   eBullets = [];
   bossClearTimer = 2000;
-  let pick = BOSS_POOL[Math.floor(Math.random()*BOSS_POOL.length)];
-  if(pick[0]===lastBossChar && BOSS_POOL.length>1){
-    const others = BOSS_POOL.filter(b=>b[0]!==lastBossChar);
-    pick = others[Math.floor(Math.random()*others.length)];
-  }
+  let candidates = BOSS_POOL.filter(b=>!bossCharsUsedThisRun.has(b[0]));
+  if(candidates.length===0) candidates = BOSS_POOL; // 万一枯渇したらリセット（通常は3ステージ分＜6種なので発生しない）
+  let pick = candidates[Math.floor(Math.random()*candidates.length)];
   lastBossChar = pick[0];
+  bossCharsUsedThisRun.add(pick[0]);
   bossPending = { ch:pick[0], strokes:pick[1], sub:pick[2] };
   state = 'warning';
 }
@@ -1023,13 +1023,13 @@ function fireHomingBullets(e,n,speed){
     const spread = n>1 ? (i-(n-1)/2)*0.5 : 0;
     const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1;
     const baseVx=dx/d*speed, baseVy=dy/d*speed;
-    // 初速に少し扇状のばらつきを持たせつつ、以降updateEnemyBullets側で自機方向へ緩やかに旋回させる
+    // 初速に少し扇状のばらつきを持たせつつ、以降updateEnemyBullets側で自機方向へ旋回させる
     const cos=Math.cos(spread), sin=Math.sin(spread);
     eBullets.push({
       x:e.x, y:e.y,
       vx: baseVx*cos - baseVy*sin,
       vy: baseVx*sin + baseVy*cos,
-      color, homing:true, homingLife:1800
+      color, homing:true, homingTurnsLeft:3, homingReaimTimer:500 // 要望対応：3回だけ追尾し、以降は直進して画面外へ
     });
   }
 }
@@ -1101,8 +1101,10 @@ function startApproachPhase(){
 function resetGame(){
   score=0n; combo=0; comboMax=0; elapsed=0; stageIndex=0; stageStartElapsed=0; clearTimeMs=0;
   bossSpawnedFor=[false,false,false]; bossActive=null; bossPending=null; bossClearTimer=0;
+  bossCharsUsedThisRun = new Set();
   pBullets=[]; eBullets=[]; particles=[]; popups=[];
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
+  playerTopLocked = false;
   input.dodgeRequested=false; dodgeUsesUsed=0; dodgeSuppressNext=false;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
   stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false; skipRestOfFrame=false;
@@ -1200,7 +1202,7 @@ async function refreshRankingList(){
   try{
     const top10 = await window.KCRanking.getRanking();
     itemsEl.innerHTML = top10.length ? top10.map((r,i)=>
-      `<li><span>${i+1}位　${escapeHtml(r.name||'匿名')}${r.usedFreeMode?'　★':''}</span><span>${kanjiNum(r.score)}点　${(r.clearTimeMs/1000).toFixed(1)}秒</span></li>`
+      `<li><span>${i+1}位　${escapeHtml(r.name||'匿名')}${r.usedFreeMode?'　★':''}</span><span>${r.score}点　${(r.clearTimeMs/1000).toFixed(1)}秒</span></li>`
     ).join('') : '<li>まだ記録がありません</li>';
   }catch(err){
     console.error(err);
@@ -1371,7 +1373,10 @@ const BOSS_STAGE_CONFIG = [
       b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
     },
     fireInterval: 600,
-    fire(b, elapsed){ fireEnemyBullet(b,5); fireRadialBullets(b,4,3.6,elapsed/600); }
+    fire(b, elapsed){
+      fireEnemyBullet(b,5); fireRadialBullets(b,4,3.6,elapsed/600);
+      if(Math.floor(elapsed/600)%3===0) fireAimedBullet(b,6.0); // 要望対応：さらに派手に、狙い撃ちを織り交ぜる
+    }
   },
   { // 第三形態：同じ軌道＋弾幕シューティング級の放射状弾（回転しながら連射）＋追尾弾
     move(b, elapsed){
@@ -1385,7 +1390,9 @@ const BOSS_STAGE_CONFIG = [
     fireInterval: 380,
     fire(b, elapsed){
       fireRadialBullets(b, 5, 4.5, elapsed/450);  // 10 → 5 に半減
-      fireHomingBullets(b, 2, 5.5); // 追尾弾（強すぎたため2発に削減）
+      if(Math.floor(elapsed/380)%6===0) fireRadialBullets(b, 12, 3.3, 0); // 要望対応：さらに派手に、定期的に全方位の大きな一斉射撃
+      // 要望対応：前の追尾弾が画面外に消えるまで次の追尾弾は撃たない
+      if(!eBullets.some(x=>x.homing)) fireHomingBullets(b, 2, 5.5);
     }
   }
 ];
@@ -1453,15 +1460,20 @@ function updateDodge(){
   // コナミコマンドのフリーモードは、そのプレイ中（ゲーム終了までorタイトルに戻るまで）持続する
 }
 
+let playerTopLocked = false; // 要望対応：一番上に到達したら、一番下に着くまで上方向へ動けなくする
 function updatePlayerMovement(dt){
   if(input.active){
-    const TOUCH_OFFSET_Y = 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）
+    const TOUCH_OFFSET_Y = demoActive ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモは実タッチでないため適用しない
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
-    const ty=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
+    let tyRaw=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
+    if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
+    if(playerTopLocked && player.y>=rows-1.5) playerTopLocked = false; // 一番下まで来たら解除
+    const ty = playerTopLocked ? Math.max(tyRaw, player.y) : tyRaw; // ロック中は現在地より上には行けない（左右・下方向のみ）
     const dx=tx-player.x, dy=ty-player.y;
     const dist=Math.hypot(dx,dy);
     // ワープ修正：瞬間移動ではなく「ものすごい速さで到達」させる。30fps基準で速度上限を設定
-    const MAX_SPEED_CELLS_PER_30FPS = 2.0;
+    // デモ中は要望対応でゆっくり滑らかに動かす（20ドット程度の移動が一瞬でスナップしないように）
+    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : 2.0;
     const maxStep = MAX_SPEED_CELLS_PER_30FPS * (dt/(1000/30));
     if(dist<=maxStep || dist===0){
       player.x=tx; player.y=ty;
@@ -1557,14 +1569,15 @@ function updatePlayerBullets(dt){
 function updateEnemyBullets(dt){
   for(let i=eBullets.length-1;i>=0;i--){
     const b=eBullets[i];
-    if(b.homing && b.homingLife>0){
-      b.homingLife -= dt;
-      const dx=player.x-b.x, dy=player.y-b.y, d=Math.hypot(dx,dy)||1;
-      const speed=Math.hypot(b.vx,b.vy)||5;
-      const targetVx=dx/d*speed, targetVy=dy/d*speed;
-      const turnRate=0.06; // 追尾の旋回の緩やかさ（急旋回しすぎない）
-      b.vx += (targetVx-b.vx)*turnRate;
-      b.vy += (targetVy-b.vy)*turnRate;
+    if(b.homing && b.homingTurnsLeft>0){
+      b.homingReaimTimer -= dt;
+      if(b.homingReaimTimer<=0){
+        b.homingTurnsLeft--;
+        b.homingReaimTimer = 500;
+        const dx=player.x-b.x, dy=player.y-b.y, d=Math.hypot(dx,dy)||1;
+        const speed=Math.hypot(b.vx,b.vy)||5;
+        b.vx = dx/d*speed; b.vy = dy/d*speed; // 1回分の「追いかけ」：自機方向へ直接切り替える
+      }
     }
     b.x+=b.vx*dt/1000; b.y+=b.vy*dt/1000;
     if(b.y>rows+1||b.x<-1||b.x>cols+1){ eBullets.splice(i,1); continue; }
@@ -1744,6 +1757,17 @@ function drawWarning(){
   ctx.restore();
 }
 
+function hudBackdrop(text, x, y, align){
+  // 要望対応：HUD文字が敵文字等と重なって読みにくい問題への対策。文字の背後に半透明の帯を敷く
+  const w = ctx.measureText(text).width;
+  const pad = 4;
+  const bx = align==='right' ? x-w-pad : (align==='center' ? x-w/2-pad : x-pad);
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.6)';
+  ctx.fillRect(bx, y-2, w+pad*2, cell*0.85);
+  ctx.restore();
+}
+
 function drawGame(){
   ctx.save();
   ctx.globalAlpha = player.invuln>0 ? (Math.floor(elapsed/80)%2===0?0.3:1) : 1;
@@ -1830,23 +1854,28 @@ function drawGame(){
   ctx.save();
   ctx.textAlign='left'; ctx.textBaseline='top';
   ctx.font=`bold ${Math.max(14,cell*0.75)}px monospace`;
-  ctx.fillStyle='#ffcc33'; ctx.fillText('得点 '+kanjiNum(score), 10, 8);
-  ctx.fillStyle='#33e0ff'; ctx.fillText('連撃 '+kanjiNum(combo), 10, 8+cell*0.9);
+  { const t1='得点 '+kanjiNum(score); hudBackdrop(t1,10,8,'left'); ctx.fillStyle='#ffcc33'; ctx.fillText(t1, 10, 8); }
+  { const t2='連撃 '+kanjiNum(combo); hudBackdrop(t2,10,8+cell*0.9,'left'); ctx.fillStyle='#33e0ff'; ctx.fillText(t2, 10, 8+cell*0.9); }
   if(approachActive){
-    ctx.textAlign='center'; ctx.fillStyle='#8affc8'; ctx.font=`${cell*0.6}px monospace`;
-    ctx.fillText('冒険篇　残り'+kanjiNum(Math.max(0,Math.ceil(approachTimer/1000)))+'秒', W/2, 8);
+    ctx.textAlign='center'; ctx.font=`${cell*0.6}px monospace`;
+    const t3='冒険篇　残り'+kanjiNum(Math.max(0,Math.ceil(approachTimer/1000)))+'秒';
+    hudBackdrop(t3,W/2,8,'center'); ctx.fillStyle='#8affc8'; ctx.fillText(t3, W/2, 8);
     ctx.textAlign='left';
   }
 
   ctx.textAlign='right';
   if(gameMode==='timeattack'){
     const remain=Math.max(0,GAME_DURATION-elapsed), sec=Math.ceil(remain/1000);
+    const t4=kanjiNum(sec)+'秒';
+    hudBackdrop(t4,W-10,8,'right');
     ctx.fillStyle = sec<=10 ? '#ff3b3b' : '#ffffff';
-    ctx.fillText(kanjiNum(sec)+'秒', W-10, 8);
+    ctx.fillText(t4, W-10, 8);
   } else {
     const sec=Math.floor(elapsed/1000);
+    const t4=kanjiNum(sec)+'秒経過';
+    hudBackdrop(t4,W-10,8,'right');
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(kanjiNum(sec)+'秒経過', W-10, 8);
+    ctx.fillText(t4, W-10, 8);
   }
 
   ctx.textAlign='left'; ctx.fillStyle='#ff5577';
