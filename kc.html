@@ -247,8 +247,8 @@ function buildVezarParts(){
 const VEZAR_PARTS = buildVezarParts();
 const VEZAR_TEMPO = 30;
 
-const DASH_P1 = "O2L3" + "O2+C1R5R1+C1#A1R5R3#A1A7" + "A4#A3B3" + "O2+C1R5R1+C1#A1R5R3#A1A7" + "A4#A3B3";
-const DASH_P2 = "R5L1" + "O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C" + "C1C1C1-D1-D1F1F1" + "O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C" + "C1CCDDGG";
+const DASH_P1 = "O2L3" + "O2+C1R5R1+C1#A1R5R3#A1A7" + "A4#A3B3";
+const DASH_P2 = "R5L1" + "O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C" + "C1C1C1-D1-D1F1F1";
 const DASH_PARTS = [DASH_P1, DASH_P2, ""];
 const DASH_TEMPO = 180;
 
@@ -347,6 +347,7 @@ let state='title';
 let elapsed=0;
 const GAME_DURATION=180000;
 let stageIndex=0;
+let stageWave=0;
 let bossSpawnedFor=[false,false,false];
 let bossActive=null;
 let bossClearTimer=0;
@@ -378,41 +379,47 @@ function makeEnemyBase(slotX, slotY, tier){
            pattern:'march', diveT:0, diveState:'hover', diveDelay:800+Math.random()*2500, loopT:0 };
 }
 
+function spawnStage0Wave(){
+  // 第一形態：階層編隊（下段=弱、中段=中、上段=強）、横移動→降下
+  const colsN = 10, spacing = 1.25;
+  const rowsDef = [
+    {row:0, tier:TIER_STRONG},
+    {row:1, tier:TIER_STRONG},
+    {row:2, tier:TIER_MEDIUM},
+    {row:3, tier:TIER_MEDIUM},
+    {row:4, tier:TIER_WEAK},
+    {row:5, tier:TIER_WEAK}
+  ];
+  rowsDef.forEach(rd=>{
+    for(let c=0;c<colsN;c++){
+      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, rd.row*1.0, rd.tier);
+      e.pattern='march';
+      enemies.push(e);
+    }
+  });
+}
+
 function setupFormationForStage(){
   enemies = [];
   formation.anchorX = cols/2; formation.anchorY = 2; formation.dir = 1;
+  stageWave = 0;
   if(stageIndex===0){
-    // 第一形態：階層編隊（下段2列=弱、中段2列=中、上段1列=やや強）、横移動→降下
-    const colsN = 7, spacing = 1.35;
-    const rowsDef = [
-      {row:0, tier:TIER_STRONG}, // 最上段：やや強い敵
-      {row:1, tier:TIER_MEDIUM},
-      {row:2, tier:TIER_MEDIUM},
-      {row:3, tier:TIER_WEAK},
-      {row:4, tier:TIER_WEAK}
-    ];
-    rowsDef.forEach(rd=>{
-      for(let c=0;c<colsN;c++){
-        const e = makeEnemyBase((c-(colsN-1)/2)*spacing, rd.row*1.15, rd.tier);
-        e.pattern='march';
-        enemies.push(e);
-      }
-    });
+    spawnStage0Wave(); // 1ウェーブ目。全滅させると2ウェーブ目が出る（合計で旧仕様の約3倍）
   } else if(stageIndex===1 || stageIndex===2){
     // 第二・第三形態：編隊は降下しない。個々（または複数同時）が急降下→
     // 画面下から出たら上に戻る（ラップアラウンド）、たまに宙返りで戻る。
-    // 同時攻撃数の上限：ギャラクシアン(1)=3体、ギャラガ(2)=5体
-    const colsN = stageIndex===1?7:8, rowsN=2, spacing=1.3;
+    // 同時攻撃数の上限：ギャラクシアン(1)=4体、ギャラガ(2)=7体
+    const colsN = stageIndex===1?10:11, rowsN=3, spacing=1.15;
     for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
       const tier = r===0?TIER_MEDIUM:TIER_WEAK;
-      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.2, tier);
+      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.1, tier);
       e.pattern='peel';
       enemies.push(e);
     }
   }
 }
 
-const MAX_DIVERS = [0,3,5]; // ステージごとの同時攻撃数上限（第一形態は編隊行進のため0=対象外）
+const MAX_DIVERS = [0,4,7]; // ステージごとの同時攻撃数上限（第一形態は編隊行進のため0=対象外）
 
 function countDiving(){
   let n=0; for(const e of enemies){ if(e.pattern==='peel' && e.diveState!=='hover') n++; } return n;
@@ -467,9 +474,11 @@ function updateFormationAnchor(dt){
     if(formation.anchorX > cols/2+4 || formation.anchorX < cols/2-4){
       formation.dir *= -1;
       formation.anchorX = Math.max(cols/2-4, Math.min(cols/2+4, formation.anchorX));
-      // 降下しきって自機付近まで迫らないよう、暫定的に上限を設けている（要相談）
-      const MAX_FORMATION_ANCHOR_Y = 5;
-      formation.anchorY = Math.min(formation.anchorY + formation.stepDown, MAX_FORMATION_ANCHOR_Y);
+      formation.anchorY += formation.stepDown;
+      const LOSE_LINE = rows - 3; // 編隊の最下段がここまで来たら強制ゲームオーバー
+      if(formation.anchorY + 4*1.15 >= LOSE_LINE && state==='playing'){
+        endGame('gameover');
+      }
     }
   } else if(stageIndex===1){
     formation.anchorX = cols/2 + Math.sin(elapsed/1800)*3;
@@ -500,8 +509,8 @@ function actuallySpawnBoss(){
 }
 
 function spawnEscortFormation(){
-  // ボス戦には随伴する敵編隊がつく（ボス単体ではなく小規模な護衛編隊込み）
-  const colsN = 4, spacing = 1.6;
+  // ボス戦には随伴する敵編隊がつく（ボス単体ではなく護衛編隊込み）
+  const colsN = 8, spacing = 1.1;
   const pat = stageIndex===0 ? 'march' : 'peel';
   for(let c=0;c<colsN;c++){
     const e = makeEnemyBase((c-(colsN-1)/2)*spacing, -1, TIER_WEAK);
@@ -579,11 +588,17 @@ function updateLogic(dt){
 
   if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
 
-  const BOSS_WAIT_AFTER_STAGE_START = 2000; // ステージ開始からボス出現までの待ち時間
-  if(!bossSpawnedFor[stageIndex] && (elapsed-stageStartElapsed)>=BOSS_WAIT_AFTER_STAGE_START && !bossActive && !bossPending){
-    bossSpawnedFor[stageIndex]=true;
-    triggerBossSequence();
-    return;
+  const BOSS_SAFETY_TIMEOUT = 50000; // 万一編隊を倒しきれない場合の保険（編隊クリアが基本トリガー）
+  const formationCleared = enemies.length===0;
+  if(!bossSpawnedFor[stageIndex] && !bossActive && !bossPending){
+    if(stageIndex===0 && formationCleared && stageWave<1){
+      stageWave = 1;
+      spawnStage0Wave(); // 2ウェーブ目
+    } else if(formationCleared || (elapsed-stageStartElapsed)>=BOSS_SAFETY_TIMEOUT){
+      bossSpawnedFor[stageIndex]=true;
+      triggerBossSequence();
+      return;
+    }
   }
 
   if(dodgeUseCount>0){
