@@ -464,6 +464,8 @@ function dodgeRequiredTaps(){
   return DODGE_UNIT_SEQUENCE[idx] * DODGE_UNIT_TAPS;
 }
 function toGrid(cx,cy){ return {gx:(cx-(W-cols*cell)/2)/cell, gy:(cy-(H-rows*cell)/2)/cell}; }
+let secretTapCount = 0;
+let secretTapLastTime = 0;
 function pointerDown(cx,cy){
   ensureAudio();
   input.active=true; input.downTime=performance.now();
@@ -472,7 +474,17 @@ function pointerDown(cx,cy){
   if(now-input.lastTapTime<350) input.tapCount++; else input.tapCount=1;
   input.lastTapTime=now;
   if(input.tapCount>=dodgeRequiredTaps()){ input.dodgeRequested=true; input.tapCount=0; }
-  if(state==='title') startGame();
+  if(state==='title'){
+    // タッチ端末向けの隠しコマンド代替：著作権表記を5回連続タップ
+    const copyrightHit = cy > H*0.88 && cy < H*0.96 && cx > W*0.25 && cx < W*0.75;
+    if(copyrightHit){
+      if(now-secretTapLastTime<600) secretTapCount++; else secretTapCount=1;
+      secretTapLastTime = now;
+      if(secretTapCount>=5){ dodgeFreeMode = true; secretTapCount = 0; }
+      return; // ゲーム開始はしない
+    }
+    startGame();
+  }
   else if(state==='result'){ stopSong(); state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
@@ -535,19 +547,25 @@ function initStars(){
 let formation = { anchorX: 12, anchorY: 2, dir: 1, stepDown: 0.9 };
 let stageStartElapsed = 0;
 
+const ROW_COLOR_PALETTE = ['#5be0ff','#c866ff','#ffd23b','#ff4d5e','#66ff9c','#ff8a3b'];
+function colorForRow(slotY){
+  const idx = Math.round(Math.abs(slotY||0));
+  return ROW_COLOR_PALETTE[idx % ROW_COLOR_PALETTE.length];
+}
+
 function makeEnemyBase(slotX, slotY, tier){
   const pick = pickFromTier(tier); // tier未指定時はpickFromTier内部でREGULAR_POOL全体から選ぶ
   const strokes = pick[1];
   const hp = Math.max(1, Math.ceil(strokes/2));
   return { ch:pick[0], strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
-           hitFlash:0, fireTimer:800+Math.random()*2000,
+           hitFlash:0, fireTimer:800+Math.random()*2000, color:colorForRow(slotY),
            pattern:'march', diveT:0, diveState:'hover', diveDelay:800+Math.random()*2500, loopT:0 };
 }
 
 function makeEnemyFixed(ch, strokes, slotX, slotY){
   const hp = Math.max(1, Math.ceil(strokes/2));
   return { ch, strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
-           hitFlash:0, fireTimer:800+Math.random()*2000,
+           hitFlash:0, fireTimer:800+Math.random()*2000, color:'#ffcf6a',
            pattern:'march', diveT:0, diveState:'hover', diveDelay:1500+Math.random()*2500, loopT:0,
            uniformSize:true };
 }
@@ -747,17 +765,21 @@ function triggerBossSequence(){
 function actuallySpawnBoss(){
   const p = bossPending;
   const hp = 30 + stageIndex*15;
-  bossActive = { ch:p.ch, strokes:p.strokes, hp, maxHp:hp, x:cols/2, y:-2, vx:0.6, vy:2.5, fireTimer:700, hitFlash:0 };
+  bossActive = { ch:p.ch, strokes:p.strokes, hp, maxHp:hp, x:cols/2, y:-2, vx:0.6, vy:2.5, fireTimer:700, hitFlash:0, color:'#ff2b6a' };
   bossPending = null;
   state = 'playing';
+  bossEscortCycle = 0;
+  bossEscortCycleTimer = 10000;
   bossEscortSpawnTimer = 0;
-  bossEscortWindowMs = 20000; // ランダム敵の補充は20秒間だけ
+  bossEscortCycleSpawned = 0;
   spawnEscortFormation();
 }
 
-const BOSS_ESCORT_TARGET = 30; // 冒険パート(60体)の半分。ボス戦中は常にこの数を維持
+const BOSS_ESCORT_CYCLE_QUOTA = 15; // 1サイクル(10秒)あたりの湧き数上限。2サイクルで冒険パートの半分相当
+let bossEscortCycle = 0;
+let bossEscortCycleTimer = 0;
 let bossEscortSpawnTimer = 0;
-let bossEscortWindowMs = 0; // 残りの補充可能時間（20秒で終了）
+let bossEscortCycleSpawned = 0;
 function spawnSingleEscortEnemy(){
   const tier = Math.random()<0.5 ? TIER_WEAK : TIER_MEDIUM;
   const pattern = stageIndex===0 ? 'march' : 'peel';
@@ -796,9 +818,10 @@ function spawnEscortFormation(){
 
 function fireEnemyBullet(e,count){
   count=count||1;
+  const color = e.color || '#ff3b3b';
   for(let i=0;i<count;i++){
     const spread = count>1 ? (i-(count-1)/2)*0.35 : 0;
-    eBullets.push({x:e.x,y:e.y+0.5,vx:spread,vy:5.5});
+    eBullets.push({x:e.x,y:e.y+0.5,vx:spread,vy:5.5,color});
   }
 }
 function addPopup(x,y,text,color){ popups.push({x,y,text,color,life:700,t:0}); }
@@ -835,7 +858,7 @@ function damageEnemy(e, isBoss){
 }
 
 function spawnApproachEnemy(){
-  const e = makeEnemyBase(0, 0, null); // ランダムな漢字（意味を成さない）
+  const e = makeEnemyBase(0, Math.floor(Math.random()*6), null); // ランダムな漢字（意味を成さない）、色にバリエーション
   e.pattern = 'approach';
   e.x = cols/2 + (Math.random()-0.5)*(cols-4);
   e.y = -1;
@@ -889,15 +912,24 @@ const BOSS_STAGE_CONFIG = [
     move(b, elapsed, dt){ b.x += Math.sin(elapsed/900)*(dt/1000)*1.2; }
   },
   { // 第二形態以降：sin/cosを組み合わせた複雑な軌道
+    //（局所時間 t を使い、開始直後は現在位置から滑らかに合流させてワープを防ぐ）
     move(b, elapsed){
-      b.x = cols/2 + Math.sin(elapsed/1100)*5 + Math.cos(elapsed/1900)*1.8;
-      b.y = b.baseY + Math.sin(elapsed/1500)*1.6;
+      const t = elapsed - b.moveT0;
+      const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
+      const targetY = b.baseY + Math.sin(t/1500)*1.6;
+      const ease = Math.min(1, t/1200); // 最初の1.2秒は現在地から滑らかに合流
+      b.x += (targetX-b.x)*0.05*(0.3+ease*0.7);
+      b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
     }
   },
   { // 第三形態：第二形態と同じ軌道パターン（必要ならここだけ個別調整可能）
     move(b, elapsed){
-      b.x = cols/2 + Math.sin(elapsed/1100)*5 + Math.cos(elapsed/1900)*1.8;
-      b.y = b.baseY + Math.sin(elapsed/1500)*1.6;
+      const t = elapsed - b.moveT0;
+      const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
+      const targetY = b.baseY + Math.sin(t/1500)*1.6;
+      const ease = Math.min(1, t/1200);
+      b.x += (targetX-b.x)*0.05*(0.3+ease*0.7);
+      b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
     }
   }
 ];
@@ -905,18 +937,17 @@ const BOSS_STAGE_CONFIG = [
 function updateApproachPhase(dt){
   if(!approachActive) return;
   approachTimer -= dt;
-  if(stageIndex!==2){
+  const spawningAllowed = approachTimer>0 && approachSpawnedCount<approachQuota;
+  if(stageIndex!==2 && spawningAllowed){
     approachSpawnTimer -= dt;
-    if(approachSpawnTimer<=0 && approachSpawnedCount<approachQuota){
+    if(approachSpawnTimer<=0){
       spawnApproachEnemy();
       approachSpawnTimer = 110+Math.random()*90;
     }
   }
-  const clearedEarly = enemies.length===0 && approachSpawnedCount>=approachQuota;
-  if(clearedEarly || approachTimer<=0){
+  // 10秒経過後は新規に発生しないだけ。既存の敵は消さず、倒しきったら本編へ進む
+  if(!spawningAllowed && enemies.length===0){
     approachActive = false;
-    if(enemies.length>0){ enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff')); } // ボス出現時と同様に一掃
-    enemies = [];
     setupFormationForStage(); // 本編編隊を開始
   }
 }
@@ -1004,7 +1035,7 @@ function updateBoss(dt){
   const b=bossActive;
   if(b.vy>0){
     b.y += b.vy*dt/1000;
-    if(b.y>rows*0.28){ b.vy=0; b.baseY=b.y; }
+    if(b.y>rows*0.28){ b.vy=0; b.baseY=b.y; b.moveT0=elapsed; }
   } else {
     const cfg = BOSS_STAGE_CONFIG[Math.min(stageIndex, BOSS_STAGE_CONFIG.length-1)];
     cfg.move(b, elapsed, dt);
@@ -1014,14 +1045,22 @@ function updateBoss(dt){
   if(b.fireTimer<=0 && !stageGraceActive){ fireEnemyBullet(b,3); b.fireTimer=850; }
   if(b.hitFlash>0) b.hitFlash-=dt;
 
-  // ランダム敵の補充：20秒間だけ、常に目標数（冒険パートの半分）を維持する
-  if(bossEscortWindowMs>0){
-    bossEscortWindowMs -= dt;
-    bossEscortSpawnTimer -= dt;
-    if(bossEscortSpawnTimer<=0){
-      const nonBossCount = enemies.length;
-      if(nonBossCount < BOSS_ESCORT_TARGET){ spawnSingleEscortEnemy(); }
-      bossEscortSpawnTimer = 300+Math.random()*200;
+  // ランダム敵の補充：冒険モードと同じロジックを2サイクル（10秒×2＝20秒）繰り返す
+  if(bossEscortCycle<2){
+    bossEscortCycleTimer -= dt;
+    const spawningAllowed = bossEscortCycleTimer>0 && bossEscortCycleSpawned<BOSS_ESCORT_CYCLE_QUOTA;
+    if(spawningAllowed){
+      bossEscortSpawnTimer -= dt;
+      if(bossEscortSpawnTimer<=0){
+        spawnSingleEscortEnemy();
+        bossEscortCycleSpawned++;
+        bossEscortSpawnTimer = 300+Math.random()*200;
+      }
+    } else if(bossEscortCycleTimer<=0){
+      bossEscortCycle++;
+      bossEscortCycleTimer = 10000;
+      bossEscortSpawnTimer = 0;
+      bossEscortCycleSpawned = 0;
     }
   }
 }
@@ -1160,12 +1199,7 @@ function drawGame(){
   enemies.forEach(e=>{
     const size = e.uniformSize ? cell*1.3 : cell*(0.7+Math.min(1.6,e.strokes/16));
     ctx.save();
-    let color;
-    if(e.hitFlash>0) color='#ffffff';
-    else if(e.uniformSize) color='#ffcf6a';
-    else if(e.strokes<=4) color='#5be0ff';      // 弱：水色系
-    else if(e.strokes<=9) color='#c866ff';      // 中：紫系
-    else color='#ff4d5e';                        // 強：赤系
+    const color = e.hitFlash>0 ? '#ffffff' : e.color;
     ctx.fillStyle = color;
     ctx.font=`${size}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
     if(e.diveState==='loop'){
@@ -1194,8 +1228,7 @@ function drawGame(){
 
   ctx.fillStyle='#8aff3b';
   pBullets.forEach(b=>ctx.fillRect(gx(b.x)-1.5, gy(b.y)-cell*0.4, 3, cell*0.6));
-  ctx.fillStyle='#ff3b3b';
-  eBullets.forEach(b=>{ ctx.beginPath(); ctx.arc(gx(b.x),gy(b.y),cell*0.14,0,7); ctx.fill(); });
+  eBullets.forEach(b=>{ ctx.fillStyle=b.color||'#ff3b3b'; ctx.beginPath(); ctx.arc(gx(b.x),gy(b.y),cell*0.14,0,7); ctx.fill(); });
 
   particles.forEach(p=>{
     const a=1-p.t/p.life;
