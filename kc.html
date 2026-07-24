@@ -223,6 +223,7 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
   function playOnce(startTime){
+    if(stopped) return;
     let t = startTime;
     segEvents.forEach(parts=>{
       let segEnd = t;
@@ -230,7 +231,7 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
         let pt = t;
         events.forEach(ev=>{
           const d = durMs(ev.len, tempo)/1000;
-          if(ev.freq>0 && !stopped){
+          if(ev.freq>0){
             const osc=actx.createOscillator();
             osc.type='square';
             osc.frequency.value=ev.freq;
@@ -248,14 +249,22 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
       });
       t = segEnd; // 一番長いパートに揃えてから次の行へ（休符待機と同義）
     });
+    const nextStart = t;
     if(loop && !stopped){
-      const waitMs = (t-actx.currentTime)*1000;
-      setTimeout(()=>{ if(!stopped) playOnce(t); }, Math.max(0,waitMs-60));
+      // 次ループの開始を実時間ギリギリで予約（早すぎても遅すぎてもズレの元になるため）
+      const now = actx.currentTime;
+      const wait = Math.max(0.01, nextStart - now - 0.08);
+      setTimeout(()=>{ if(!stopped) playOnce(nextStart); }, wait*1000);
     }
     return t;
   }
-  playOnce(actx.currentTime+0.04);
-  return { stop(){ stopped=true; try{master.disconnect();}catch(e){} } };
+  playOnce(actx.currentTime+0.05);
+  return {
+    stop(){
+      stopped=true;
+      try{ master.disconnect(); }catch(e){}
+    }
+  };
 }
 
 function sp(s){ return s.split(':'); }
