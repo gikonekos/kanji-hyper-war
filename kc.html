@@ -995,7 +995,7 @@ function updateDodge(){
   SFX.dodge();
   addPopup(player.x, player.y-1, '緊急避難', '#99e6ff');
   dodgeUsesUsed++;
-  if(dodgeFreeMode) dodgeFreeMode = false; // コナミコマンドのフリーモードは1回使うたびにリセット（再入力が必要）
+  // コナミコマンドのフリーモードは、そのプレイ中（ゲーム終了までorタイトルに戻るまで）持続する
 }
 
 function updatePlayerMovement(dt){
