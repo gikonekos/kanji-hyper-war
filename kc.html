@@ -77,12 +77,21 @@ const KANJI_POOL = [
   ['星',9],['光',6],['電',13],['音',9],['楽',13],['語',14],['話',13],['読',14],['書',10],['記',10],
   ['時',10],['分',4],['秒',9],['週',11],['国',8],['王',4],['玉',5],['米',6],['虫',6],['鳥',11],
   ['犬',4],['馬',10],['魚',11],['車',7],['竹',6],['糸',6],['貝',7],['手',4],['目',5],['耳',6],
-  ['口',3],['足',7],['頭',16],['顔',18],['体',7],['命',8],['愛',13],['夢',13],['恋',10],['龍',16]
+  ['口',3],['足',7],['頭',16],['顔',18],['体',7],['命',8],['愛',13],['夢',13],['恋',10],['龍',16],
+  ['新',13],['東',8],['西',6],['南',9],['北',5],['中',4],['外',5],['上',3],['下',3],['左',5],
+  ['右',5],['前',9],['後',9],['内',4],['間',12],['事',8],['物',8],['者',8],['何',7],['私',7],
+  ['今',4],['明',8],['白',5],['黒',11],['赤',7],['青',8],['高',10],['安',6],['早',6],['長',8],
+  ['多',6],['少',4],['強',11],['弱',10],['太',4],['細',11],['広',5],['家',10],['町',7],['村',7],
+  ['島',10],['道',12],['走',7],['歩',8],['買',12],['売',7],['立',5],['見',7]
 ];
 const BOSS_POOL = [
   ['電',13,'放電注意'],['頭',16,'思考停止'],['顔',18,'視認困難'],
   ['龍',16,'咆哮警戒'],['響',20,'轟音接近'],['驚',22,'制御不能']
 ];
+const TIER_WEAK   = KANJI_POOL.filter(k=>k[1]<=4);
+const TIER_MEDIUM = KANJI_POOL.filter(k=>k[1]>4 && k[1]<=9);
+const TIER_STRONG = KANJI_POOL.filter(k=>k[1]>9);
+function pickFromTier(tier){ const a = tier.length?tier:KANJI_POOL; return a[Math.floor(Math.random()*a.length)]; }
 
 /* ---------- 漢数字変換 ---------- */
 const KSU=['','一','二','三','四','五','六','七','八','九'];
@@ -251,7 +260,24 @@ const PROM_TEMPO = 120;
 
 let actx=null;
 let currentSong=null;
-function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+function ensureAudio(){
+  if(!actx){
+    try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  }
+  // iOS/iPadSafari対策：AudioContextはユーザー操作（タップ）の中でresumeしないと鳴らない
+  if(actx && actx.state === 'suspended'){
+    actx.resume().catch(()=>{});
+  }
+  // 無音バッファを1回再生して出力経路を確実に開通させる（iOS Safari向けの定番対策）
+  if(actx && !actx.__unlocked){
+    try{
+      const b = actx.createBuffer(1,1,22050);
+      const s = actx.createBufferSource();
+      s.buffer=b; s.connect(actx.destination); s.start(0);
+      actx.__unlocked = true;
+    }catch(e){}
+  }
+}
 function stopSong(){ if(currentSong){ currentSong.stop(); currentSong=null; } }
 function playDash(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, DASH_PARTS, DASH_TEMPO, false, 0.12); }
 function playPromenade(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, PROM_PARTS, PROM_TEMPO, false, 0.12); }
@@ -336,49 +362,55 @@ function initStars(){
 }
 
 let formation = { anchorX: 12, anchorY: 2, dir: 1, stepDown: 0.9 };
-let waveCooldown = 0;
+let stageStartElapsed = 0;
 
-function makeEnemyBase(slotX, slotY){
-  const pick = KANJI_POOL[Math.floor(Math.random()*KANJI_POOL.length)];
+function makeEnemyBase(slotX, slotY, tier){
+  const pick = tier ? pickFromTier(tier) : KANJI_POOL[Math.floor(Math.random()*KANJI_POOL.length)];
   const strokes = pick[1];
   const hp = Math.max(1, Math.ceil(strokes/2));
   return { ch:pick[0], strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
            hitFlash:0, fireTimer:800+Math.random()*2000,
-           pattern:'march', diveT:0, diving:false, diveDelay:1000+Math.random()*3000 };
+           pattern:'march', diveT:0, diveState:'hover', diveDelay:800+Math.random()*2500, loopT:0 };
 }
 
 function setupFormationForStage(){
   enemies = [];
   formation.anchorX = cols/2; formation.anchorY = 2; formation.dir = 1;
   if(stageIndex===0){
-    const colsN=5, rowsN=2, spacing=1.6;
+    // 第一形態：階層編隊（下段2列=弱、中段2列=中、上段1列=やや強）、横移動→降下
+    const colsN = 7, spacing = 1.35;
+    const rowsDef = [
+      {row:0, tier:TIER_STRONG}, // 最上段：やや強い敵
+      {row:1, tier:TIER_MEDIUM},
+      {row:2, tier:TIER_MEDIUM},
+      {row:3, tier:TIER_WEAK},
+      {row:4, tier:TIER_WEAK}
+    ];
+    rowsDef.forEach(rd=>{
+      for(let c=0;c<colsN;c++){
+        const e = makeEnemyBase((c-(colsN-1)/2)*spacing, rd.row*1.15, rd.tier);
+        e.pattern='march';
+        enemies.push(e);
+      }
+    });
+  } else if(stageIndex===1 || stageIndex===2){
+    // 第二・第三形態：編隊は降下しない。個々（または複数同時）が急降下→
+    // 画面下から出たら上に戻る（ラップアラウンド）、たまに宙返りで戻る。
+    // 同時攻撃数の上限：ギャラクシアン(1)=3体、ギャラガ(2)=5体
+    const colsN = stageIndex===1?7:8, rowsN=2, spacing=1.3;
     for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
-      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.3);
-      e.pattern='march';
-      enemies.push(e);
-    }
-  } else if(stageIndex===1){
-    const colsN=6, rowsN=2, spacing=1.5;
-    for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
-      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.3);
+      const tier = r===0?TIER_MEDIUM:TIER_WEAK;
+      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.2, tier);
       e.pattern='peel';
       enemies.push(e);
     }
   }
 }
 
-function spawnWaveGroup(){
-  const n = 3;
-  const baseX = 3 + Math.random()*(cols-6);
-  for(let i=0;i<n;i++){
-    const e = makeEnemyBase(0,0);
-    e.pattern='swoop';
-    e.x = baseX + i*1.4 - (n-1)*0.7;
-    e.y = -1.5 - i*0.8;
-    e.swoopT = -i*0.15;
-    e.swoopDir = Math.random()<0.5?-1:1;
-    enemies.push(e);
-  }
+const MAX_DIVERS = [0,3,5]; // ステージごとの同時攻撃数上限（第一形態は編隊行進のため0=対象外）
+
+function countDiving(){
+  let n=0; for(const e of enemies){ if(e.pattern==='peel' && e.diveState!=='hover') n++; } return n;
 }
 
 function updateFormationEnemy(e, dt){
@@ -386,24 +418,41 @@ function updateFormationEnemy(e, dt){
     e.x = formation.anchorX + e.slotX;
     e.y = formation.anchorY + e.slotY;
   } else if(e.pattern==='peel'){
-    if(!e.diving){
-      e.diveDelay -= dt;
+    if(e.diveState==='hover'){
       e.x = formation.anchorX + e.slotX;
       e.y = formation.anchorY + e.slotY;
-      if(e.diveDelay<=0){ e.diving=true; e.diveT=0; }
-    } else {
-      e.diveT += dt/2600;
-      if(e.diveT>=1){ e.diving=false; e.diveT=0; e.diveDelay=1500+Math.random()*3500; e.x=formation.anchorX+e.slotX; e.y=formation.anchorY+e.slotY; }
-      else {
-        const depth = rows - (formation.anchorY+e.slotY) - 2.5;
-        e.x = formation.anchorX + e.slotX + Math.sin(e.diveT*Math.PI*2)*2.2;
-        e.y = formation.anchorY + e.slotY + Math.sin(e.diveT*Math.PI)*Math.max(1,depth);
+      e.diveDelay -= dt;
+      const cap = MAX_DIVERS[stageIndex]||3;
+      if(e.diveDelay<=0 && countDiving()<cap){
+        e.diveState='diving'; e.diveT=0;
       }
+    } else if(e.diveState==='diving'){
+      e.diveT += dt/2200;
+      const depth = rows - (formation.anchorY+e.slotY) - 1.5;
+      e.x = formation.anchorX + e.slotX + Math.sin(e.diveT*Math.PI*2)*2.0;
+      e.y = formation.anchorY + e.slotY + e.diveT*Math.max(2,depth);
+      if(e.diveT>=1){
+        // 画面下に抜けた：通常は上から戻る、たまに宙返りで戻る
+        if(Math.random()<0.3){ e.diveState='loop'; e.loopT=0; }
+        else { e.diveState='returning'; e.y=-1.2; e.x=formation.anchorX+e.slotX; }
+      }
+    } else if(e.diveState==='returning'){
+      // 上から瞬時に戻り、編隊位置へ滑らかに復帰
+      e.diveDelay -= dt;
+      const ty = formation.anchorY+e.slotY;
+      e.y += (ty-e.y)*Math.min(1,dt/300);
+      e.x += (formation.anchorX+e.slotX-e.x)*Math.min(1,dt/300);
+      if(Math.abs(e.y-ty)<0.05){ e.diveState='hover'; e.diveDelay=800+Math.random()*2500; }
+    } else if(e.diveState==='loop'){
+      // 宙返り：画面下から円弧を描いて上まで戻る
+      e.loopT += dt/1600;
+      const cx = formation.anchorX + e.slotX;
+      const topY = -1.2, botY = rows+1.2;
+      const ang = e.loopT*Math.PI; // 0→π
+      e.y = botY - (botY-topY)*e.loopT;
+      e.x = cx + Math.sin(ang)*3.0;
+      if(e.loopT>=1){ e.diveState='returning'; e.y=-1.2; e.x=cx; }
     }
-  } else if(e.pattern==='swoop'){
-    e.swoopT += dt/2200;
-    e.x += e.swoopDir*Math.cos(e.swoopT*Math.PI*2)*dt/1000*2.6;
-    e.y += 2.2*dt/1000;
   }
 }
 
@@ -418,6 +467,9 @@ function updateFormationAnchor(dt){
   } else if(stageIndex===1){
     formation.anchorX = cols/2 + Math.sin(elapsed/1800)*3;
     formation.anchorY = 2 + Math.sin(elapsed/2600)*0.6;
+  } else if(stageIndex===2){
+    formation.anchorX = cols/2 + Math.sin(elapsed/1400)*3.6 + Math.cos(elapsed/2100)*1.2;
+    formation.anchorY = 2 + Math.cos(elapsed/2000)*0.5;
   }
 }
 
@@ -468,12 +520,11 @@ function damageEnemy(e, isBoss){
 }
 
 function resetGame(){
-  score=0; combo=0; comboMax=0; elapsed=0; stageIndex=0;
+  score=0; combo=0; comboMax=0; elapsed=0; stageIndex=0; stageStartElapsed=0;
   bossSpawnedFor=[false,false,false]; bossActive=null; bossPending=null; bossClearTimer=0;
   pBullets=[]; eBullets=[]; particles=[]; popups=[];
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
   input.dodgeUsed=false; input.dodgeRequested=false;
-  waveCooldown=0;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
   setupFormationForStage();
 }
@@ -497,12 +548,12 @@ function updateLogic(dt){
 
   const stageBounds=[60000,120000,180000];
   let ns=0; if(elapsed>=stageBounds[0]) ns=1; if(elapsed>=stageBounds[1]) ns=2;
-  if(ns!==stageIndex){ stageIndex=ns; setupFormationForStage(); ensureAudio(); playPromenade(); }
+  if(ns!==stageIndex){ stageIndex=ns; stageStartElapsed=elapsed; setupFormationForStage(); ensureAudio(); playPromenade(); }
 
   if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
 
-  const bossAt=[55000,115000,175000];
-  if(!bossSpawnedFor[stageIndex] && elapsed>=bossAt[stageIndex] && !bossActive && !bossPending){
+  const BOSS_WAIT_AFTER_STAGE_START = 2000; // ステージ開始からボス出現までの待ち時間
+  if(!bossSpawnedFor[stageIndex] && (elapsed-stageStartElapsed)>=BOSS_WAIT_AFTER_STAGE_START && !bossActive && !bossPending){
     bossSpawnedFor[stageIndex]=true;
     triggerBossSequence();
     return;
@@ -539,17 +590,12 @@ function updateLogic(dt){
   updateFormationAnchor(dt);
   enemies.forEach(e=>updateFormationEnemy(e,dt));
 
-  if(stageIndex===2){
-    waveCooldown -= dt;
-    if(waveCooldown<=0 && enemies.length<9){ spawnWaveGroup(); waveCooldown=1600+Math.random()*900; }
-  }
-
   for(let i=enemies.length-1;i>=0;i--){
     const e=enemies[i];
     if(e.hitFlash>0) e.hitFlash-=dt;
     e.fireTimer -= dt;
     if(e.fireTimer<=0 && e.y>0 && e.y<rows-1){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
-    if(e.y>rows+2){ enemies.splice(i,1); combo=0; }
+    if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
   }
 
   if(bossActive){
