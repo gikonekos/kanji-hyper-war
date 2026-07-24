@@ -24,19 +24,20 @@
   }
   #rankPanel {
     pointer-events: auto;
-    width: min(92vw, 420px);
+    width: min(92vw, 440px);
     margin-bottom: 6vh;
-    background: rgba(0,0,0,0.82);
+    background: rgba(0,0,0,0.94);
     border: 1px solid #2a6b4a;
     border-radius: 6px;
-    padding: 14px 16px;
+    padding: 20px 22px;
     box-sizing: border-box;
+    box-shadow: 0 0 20px rgba(0,0,0,0.9);
   }
-  #rankScoreLine { color: #ffe14d; font-size: 13px; margin-bottom: 10px; text-align: center; }
+  #rankScoreLine { color: #ffe14d; font-size: 13px; margin-bottom: 14px; text-align: center; }
   #rankName {
     width: 100%; box-sizing: border-box; background: #111; color: #fff;
     border: 1px solid #3a3a3a; border-radius: 4px; padding: 8px; font-family: monospace;
-    font-size: 14px; margin-bottom: 8px;
+    font-size: 14px; margin-bottom: 12px;
   }
   #rankBtnRow { display: flex; gap: 8px; }
   #rankBtnRow button, #rankContinueHint {
@@ -45,15 +46,15 @@
     cursor: pointer;
   }
   #rankStatus { text-align: center; font-size: 12px; color: #99e6ff; margin-top: 6px; min-height: 14px; }
-  #rankList h3 { margin: 0 0 8px; font-size: 13px; color: #ffe14d; text-align: center; font-weight: normal; }
-  #rankListItems { list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.7; }
+  #rankList h3 { margin: 0 0 12px; font-size: 13px; color: #ffe14d; text-align: center; font-weight: normal; }
+  #rankListItems { list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 2.1; }
   #rankListItems li { display: flex; justify-content: space-between; gap: 8px; }
-  #rankContinueHint { display: block; text-align: center; margin-top: 10px; cursor: pointer; }
+  #rankContinueHint { display: block; text-align: center; margin-top: 14px; cursor: pointer; }
 </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<div id="hint">タップして開始／ドラッグで移動／長押しで連射／すばやく2回タップで緊急避難（1回のみ）</div>
+<div id="hint">タップして開始／ドラッグで移動／長押しで連射／連続クリックで緊急避難</div>
 <div id="rankOverlay">
   <div id="rankPanel">
     <div id="rankForm">
@@ -561,11 +562,10 @@ function pointerDown(cx,cy){
     startGame();
   }
   else if(state==='result'){
-    if(rankingFormActive){ /* ランキング操作中はcanvasタップを無視し、オーバーレイのボタン操作に一本化 */ }
-    else if(resultReason==='clear'){ startStaffRoll(); }
+    if(resultReason==='clear'){ startStaffRoll(); }
     else { stopSong(); state='title'; }
   }
-  else if(state==='staffroll'){ stopSong(); state='title'; }
+  else if(state==='staffroll'){ if(!rankingFormActive){ finishStaffRollFlow(); } }
   else if(state==='opening'){ state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
@@ -611,13 +611,15 @@ let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
 
 function initStars(){
   stars=[];
-  const STAR_SIZE = 0.95; // さらに拡大（見えづらさ対応の追加調整）
-  const layers=[{n:16,speed:4,alphaBase:0.45},{n:12,speed:9,alphaBase:0.6},{n:8,speed:16,alphaBase:0.8}];
+  const STAR_SIZE = 0.75; // 2ポイント縮小（弾と混同しない小ささへ調整）
+  const STAR_COLORS = ['#b8f0ff','#ffb8f0','#fff8b0','#ffb0b0','#b0ffc0','#ffd0a0'];
+  const layers=[{n:16,speed:4,alphaBase:0.6},{n:12,speed:9,alphaBase:0.75},{n:8,speed:16,alphaBase:0.95}];
   layers.forEach(L=>{
     for(let i=0;i<L.n;i++){
       stars.push({
         x:Math.random()*cols, y:Math.random()*rows, speed:L.speed,
         size:STAR_SIZE, alphaBase:L.alphaBase,
+        color: STAR_COLORS[Math.floor(Math.random()*STAR_COLORS.length)],
         twinklePhase: Math.random()*Math.PI*2,
         twinkleSpeed: 1.5+Math.random()*2.5
       });
@@ -1109,7 +1111,7 @@ async function refreshRankingList(){
 function hideRankingOverlay(){
   document.getElementById('rankOverlay').style.display = 'none';
   rankingFormActive = false;
-  resultClearTimer = 0; // オーバーレイを閉じた時点から改めて猶予を与える
+  state='title'; // 要望対応：VEZARは題名に戻っても止めず鳴らし続ける
 }
 
 document.getElementById('rankSubmitBtn').addEventListener('click', ()=>{
@@ -1136,12 +1138,8 @@ function saveLocalBestScore(s){
 
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
-  if(reason==='clear'){
-    playVezarLoop();
-    // 自己ベスト（localStorage）を更新できた場合のみランキング送信フォームを表示する。
-    // 超えなかった場合はフォームを出さず、通常のリザルト表示のまま進む（送信自体を行わない）。
-    if(score > getLocalBestScore()){ showRankingForm(); }
-  } else { stopSong(); }
+  if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
+  // ランキング登録フォームはこの時点では出さない。順序変更：クリア→エンディング／スタッフロール→ランキング登録
 }
 
 // ============ オープニング ============
@@ -1205,19 +1203,31 @@ const STAFF_ROLL_LINES = [
 ];
 const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る（既存仕様を維持）
 const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
-const STAFF_ROLL_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
+const STAFF_ROLL_SPEED_MS_PER_CELL = 600; // スクロール速度：現状の1/2に変更（要望対応）
 const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
 let staffRollTimer = 0;
 let staffRollScrollMs = 16000;  // startStaffRollで内容量に応じて動的に再計算される
 let staffRollLineHeight = 0;
 let staffRollTotalHeight = 0;
 let resultClearTimer = 0;
+let staffRollFinished = false;
 function startStaffRoll(){
-  state='staffroll'; staffRollTimer = 0;
+  state='staffroll'; staffRollTimer = 0; staffRollFinished = false;
   staffRollLineHeight = cell*0.9*STAFF_ROLL_LINE_UNIT_LINES;
   staffRollTotalHeight = STAFF_ROLL_LINES.length*staffRollLineHeight;
   const distance = H + staffRollTotalHeight + cell*4;
   staffRollScrollMs = distance * STAFF_ROLL_SPEED_MS_PER_CELL / cell;
+}
+// スタッフロール終了後の分岐：順序変更（クリア→スタッフロール→ランキング登録）に伴い、
+// ここで初めて自己ベスト判定＆ランキングフォーム表示を行う。
+function finishStaffRollFlow(){
+  if(staffRollFinished) return;
+  staffRollFinished = true;
+  if(resultReason==='clear' && score > getLocalBestScore()){
+    showRankingForm();
+  } else {
+    state='title'; // 要望対応：VEZARは題名に戻っても止めず鳴らし続ける
+  }
 }
 
 const LOGIC_STEP=1000/60;
@@ -1451,7 +1461,7 @@ function updateLogic(dt){
     return;
   }
   if(state==='result'){
-    if(resultReason==='clear' && !rankingFormActive){
+    if(resultReason==='clear'){
       resultClearTimer += dt;
       if(resultClearTimer >= RESULT_TO_STAFFROLL_MS){ startStaffRoll(); }
     }
@@ -1459,7 +1469,7 @@ function updateLogic(dt){
   }
   if(state==='staffroll'){
     staffRollTimer += dt;
-    if(staffRollTimer >= staffRollScrollMs + STAFF_ROLL_HOLD_MS){ stopSong(); state='title'; }
+    if(staffRollTimer >= staffRollScrollMs + STAFF_ROLL_HOLD_MS){ finishStaffRollFlow(); }
     return;
   }
   if(state!=='playing') return;
@@ -1495,11 +1505,12 @@ function draw(){
 }
 
 function drawStars(){
-  ctx.save(); ctx.fillStyle='#9fc8ff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font=`${cell*0.95}px monospace`;
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font=`${cell*0.75}px monospace`;
   stars.forEach(s=>{
     const twinkle = 0.6 + 0.4*Math.sin(s.twinklePhase);
     ctx.globalAlpha = s.alphaBase * twinkle;
+    ctx.fillStyle = s.color;
     ctx.fillText('・', gx(s.x), gy(s.y));
   });
   ctx.restore();
