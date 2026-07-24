@@ -184,7 +184,7 @@ function pickFromTier(tier){
   return pick;
 }
 
-/* ---------- 漢数字変換 ---------- */
+/* ---------- 漢数字変換（超巨大数対応） ---------- */
 const KSU=['','一','二','三','四','五','六','七','八','九'];
 function conv4(n){
   if(n===0) return '';
@@ -197,11 +197,22 @@ function conv4(n){
   return s;
 }
 function kanjiNum(n){
-  n=Math.max(0,Math.min(10000000,Math.floor(n)));
-  if(n===0) return '〇';
-  const man=Math.floor(n/10000), rest=n%10000;
-  let s=''; if(man) s+=conv4(man)+'万'; s+=conv4(rest);
-  return s||'〇';
+  if(typeof n !== 'bigint') n = BigInt(Math.floor(n));
+  if(n === 0n) return '〇';
+
+  const oku  = n / 100000000n;
+  const cho  = n / 1000000000000n;
+  const kei  = n / 10000000000000000n;
+
+  let s = '';
+  if(kei > 0n) s += conv4(Number(kei)) + '京';
+  if(cho > 0n) s += conv4(Number(cho % 10000n)) + '兆';
+  if(oku > 0n) s += conv4(Number(oku % 10000n)) + '億';
+  const man = (n % 100000000n) / 10000n;
+  if(man > 0n || kei > 0n || cho > 0n || oku > 0n) s += conv4(Number(man)) + '万';
+  s += conv4(Number(n % 10000n));
+
+  return s || '〇';
 }
 
 /* ============================================================
@@ -555,6 +566,7 @@ function pointerDown(cx,cy){
     else { stopSong(); state='title'; }
   }
   else if(state==='staffroll'){ stopSong(); state='title'; }
+  else if(state==='opening'){ state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
@@ -592,7 +604,7 @@ let bossSpawnedFor=[false,false,false];
 let bossActive=null;
 let bossClearTimer=0;
 let bossPending=null;
-let score=0, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMode=false;
+let score=0n, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMode=false;
 
 const player={x:cols/2,y:rows-2,hp:5,maxHp:5,invuln:0,fireTimer:0};
 let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
@@ -662,20 +674,47 @@ function spawnStage0Wave(){
 }
 
 function spawnStage3PhraseFormation(){
-  // 必須フレーズを優先しつつ、たまに別フレーズも使う
-  const phrase = Math.random()<0.7 ? PHRASE_POOL[0] : PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
-  const colsN=4, rowsN=2, spacing=1.4;
-  for(let i=0;i<8;i++){
-    const r = Math.floor(i/colsN), c = i%colsN;
-    const slotX = (c-(colsN-1)/2)*spacing, slotY = r*1.6;
-    const e = makeEnemyFixed(phrase.text[i], phrase.strokes[i], slotX, slotY);
-    e.pattern='incoming';
+  // 2つの異なるフレーズを選択
+  let phrase1 = Math.random()<0.7 ? PHRASE_POOL[0] : PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+  let phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+
+  // 連続文字チェック
+  let attempts = 0;
+  while(hasConsecutiveSameChars(phrase1.text) && attempts < 20){
+    phrase1 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+    attempts++;
+  }
+  attempts = 0;
+  while(hasConsecutiveSameChars(phrase2.text) && attempts < 20){
+    phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+    attempts++;
+  }
+
+  // === 16文字編隊（8文字×2行、2フレーズ結合）===
+  const colsN = 8, spacing = 1.15;
+  const fullText = phrase1.text + phrase2.text;  // 16文字結合
+  const fullStrokes = phrase1.strokes.concat(phrase2.strokes);
+
+  for(let i = 0; i < 16; i++){
+    const r = Math.floor(i / colsN);
+    const c = i % colsN;
+    const slotX = (c - (colsN-1)/2) * spacing;
+    const slotY = r * 1.8;
+
+    const e = makeEnemyFixed(fullText[i], fullStrokes[i], slotX, slotY);
+    e.pattern = 'incoming';
     e.incomingT = 0;
-    e.fromSide = (i%2===0) ? -1 : 1; // 交互に左右から飛来
-    e.x = e.fromSide<0 ? -2 : cols+2;
-    e.y = 2 + r*1.6 + (Math.random()-0.5)*2;
+    e.fromSide = (i % 2 === 0) ? -1 : 1;
+    e.x = e.fromSide < 0 ? -3 : cols + 3;
+    e.y = 1.5 + r * 1.8 + (Math.random() - 0.5) * 1.5;
     enemies.push(e);
   }
+}
+function hasConsecutiveSameChars(str){
+  for(let i=1; i<str.length; i++){
+    if(str[i] === str[i-1]) return true;
+  }
+  return false;
 }
 
 function setupFormationForStage(){
@@ -907,12 +946,19 @@ function spawnEscortFormation(){
   }
 }
 
-function fireEnemyBullet(e,count){
-  count=count||1;
+function fireEnemyBullet(e, count){
+  count = count || 1;
   const color = e.color || '#ff3b3b';
-  for(let i=0;i<count;i++){
-    const spread = count>1 ? (i-(count-1)/2)*0.35 : 0;
-    eBullets.push({x:e.x,y:e.y+0.5,vx:spread,vy:5.5,color});
+  for(let i = 0; i < count; i++){
+    const spread = count > 1 ? (i - (count-1)/2) * 0.35 : 0;
+    eBullets.push({
+      x: e.x,
+      y: e.y + 0.5,
+      vx: spread,
+      vy: 5.5,
+      color: color,
+      isNormalBullet: (e === bossActive) ? false : true
+    });
   }
 }
 function fireRadialBullets(e,n,speed,angleOffset){
@@ -937,9 +983,11 @@ function damageEnemy(e, isBoss){
   if(e.hp<=0){
     const base = isBoss ? 6000 : (e.strokes*20);
     combo++; comboMax=Math.max(comboMax,combo);
-    const multiplier = combo<=32 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-32);
+    const multiplier = combo<=8 ? (1+combo*0.15) : (1+32*0.15) * Math.pow(1.25, combo-8);
     const gained = Math.floor(base*multiplier);
-    score = Math.min(10000000, score+gained);
+
+    score = score + BigInt(gained);
+
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
     addPopup(e.x,e.y,'連撃'+kanjiNum(combo),'#ffee33');
     SFX.destroy();
@@ -991,7 +1039,7 @@ function startApproachPhase(){
 }
 
 function resetGame(){
-  score=0; combo=0; comboMax=0; elapsed=0; stageIndex=0; stageStartElapsed=0; clearTimeMs=0;
+  score=0n; combo=0; comboMax=0; elapsed=0; stageIndex=0; stageStartElapsed=0; clearTimeMs=0;
   bossSpawnedFor=[false,false,false]; bossActive=null; bossPending=null; bossClearTimer=0;
   pBullets=[]; eBullets=[]; particles=[]; popups=[];
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
@@ -1076,19 +1124,66 @@ function endGame(reason){
   if(reason==='clear'){ playVezarLoop(); showRankingForm(); } else { stopSong(); }
 }
 
-// ============ スタッフロール ============
+// ============ オープニング ============
+const OPENING_LINES = [
+  'AIシステムが',
+  '未知のウイルスに感染。',
+  '漢字データが暴走！',
+  '汚染された文字を',
+  '消去せよ！'
+];
+const OPENING_LINE_UNIT_LINES = 10; // 行間：10行分の改行ぶんの空きを取る
+const OPENING_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
+const OPENING_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
+let openingTimer = 0;
+let openingScrollMs = 16000;  // startOpeningで内容量に応じて動的に再計算される
+let openingLineHeight = 0;
+let openingTotalHeight = 0;
+
+function startOpening(){
+  state='opening'; openingTimer = 0;
+  openingLineHeight = cell*0.9*OPENING_LINE_UNIT_LINES;
+  openingTotalHeight = OPENING_LINES.length*openingLineHeight;
+  const distance = H + openingTotalHeight + cell*4;
+  openingScrollMs = distance * OPENING_SPEED_MS_PER_CELL / cell;
+}
+
+// ============ エンディング・スタッフロール ============
 const STAFF_ROLL_LINES = [
-  '原案・言葉遊び文化　あやしいわーるど',
-  '監督・企画　基建吉（擬古猫）',
-  'プログラム　Claude（Anthropic）',
-  '音楽　Dash!／VEZAR（PC-E500 PLAY3、基建吉）',
-  '　　　プロムナード（ムソルグスキー「展覧会の絵」より編曲）',
-  '協力　ChatGPT',
-  'デバッグ　ChatGPT／Gemini',
-  'Special Thanks　Gemini／Grok',
+  '暴走した漢字は消えた。',
+  'AIも停止した。',
+  '　',
+  'しかし……',
+  '　',
+  'AIにウイルスを作らせた',
+  '人間は',
+  '今もどこかで',
+  '新たな命令を入力している。',
+  '　',
+  '原案・言葉遊び文化',
+  'あやしいわーるど',
+  '監督・企画',
+  '基建吉（擬古猫）',
+  'ストーリー',
+  'ChatGPT（OpenAI）',
+  'プログラム',
+  'Claude（Anthropic）',
+  'Grok（xAI）',
+  '音楽',
+  'Dash!／VEZAR',
+  '基建吉（PC-E500 PLAY3）',
+  'プロムナード',
+  'ムソルグスキー',
+  '「展覧会の絵」より編曲',
+  '協力',
+  'ChatGPT',
+  'デバッグ',
+  'ChatGPT／Gemini',
+  'Special Thanks',
+  'All Players!',
   '© 2026 ZANTEI TECHNOLOGY'
 ];
-const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る
+const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る（既存仕様を維持）
 const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
 const STAFF_ROLL_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
 const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
@@ -1137,7 +1232,10 @@ const BOSS_STAGE_CONFIG = [
       b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
     },
     fireInterval: 380,
-    fire(b, elapsed){ fireRadialBullets(b, 10, 4.5, elapsed/450); fireAimedBullet(b,7); }
+    fire(b, elapsed){
+      fireRadialBullets(b, 5, 4.5, elapsed/450);  // 10 → 5 に半減
+      fireAimedBullet(b,7);
+    }
   }
 ];
 
@@ -1194,7 +1292,7 @@ function updateBossProgression(){
 function updateDodge(){
   if(!input.dodgeRequested) return;
   input.dodgeRequested=false;
-  enemies.forEach(e=>{ addParticles(e.x,e.y,6,'#66ccff'); score+=Math.floor(e.strokes*10); });
+  enemies.forEach(e=>{ addParticles(e.x,e.y,6,'#66ccff'); score += BigInt(Math.floor(e.strokes*10)); });
   enemies=[]; eBullets=[];
   dodgeSuppressNext = true; // 次フレームの進行判定を1回だけ抑制
   if(bossActive) addParticles(bossActive.x,bossActive.y,10,'#66ccff');
@@ -1322,6 +1420,11 @@ function updateStars(dt){
 }
 
 function updateLogic(dt){
+  if(state==='opening'){
+    openingTimer += dt;
+    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ state='title'; }
+    return;
+  }
   if(state==='warning'){
     bossClearTimer -= dt;
     if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
@@ -1364,6 +1467,7 @@ function draw(){
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   drawStars();
   if(state==='title') drawTitle();
+  else if(state==='opening') drawOpening();
   else if(state==='playing') drawGame();
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
@@ -1456,18 +1560,41 @@ function drawGame(){
     const b=bossActive;
     const size=cell*2.4;
     ctx.save();
-    ctx.fillStyle = b.hitFlash>0 ? '#ffffff' : '#ff2b6a';
-    ctx.font=`bold ${size}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
+
+    // === ゲーミング虹色変化（30fps描画に同期）===
+    let bossHue = (elapsed / 8) % 360;  // 速度調整（小さくすると遅く）
+    const bossColor = b.hitFlash > 0 ? '#ffffff' : `hsl(${bossHue}, 100%, 65%)`;
+
+    ctx.fillStyle = bossColor;
+    ctx.font=`bold ${size}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(b.ch, gx(b.x), gy(b.y));
+
+    // HPバーも同色で統一
     const bw=cell*6, bh=cell*0.3, bx=W/2-bw/2, by=gy(b.y)-size*0.65;
-    ctx.strokeStyle='#fff'; ctx.strokeRect(bx,by,bw,bh);
-    ctx.fillStyle='#ff2b6a'; ctx.fillRect(bx,by,bw*(b.hp/b.maxHp),bh);
+    ctx.strokeStyle = bossColor;
+    ctx.strokeRect(bx,by,bw,bh);
+    ctx.fillStyle = bossColor;
+    ctx.fillRect(bx,by,bw*(b.hp/b.maxHp),bh);
+
     ctx.restore();
   }
 
   ctx.fillStyle='#8aff3b';
   pBullets.forEach(b=>ctx.fillRect(gx(b.x)-1.5, gy(b.y)-cell*0.4, 3, cell*0.6));
-  eBullets.forEach(b=>{ ctx.fillStyle=b.color||'#ff3b3b'; ctx.beginPath(); ctx.arc(gx(b.x),gy(b.y),cell*0.14,0,7); ctx.fill(); });
+  eBullets.forEach(b=>{
+    ctx.fillStyle = b.color || '#ff3b3b';  // 既存の通常弾はそのまま
+
+    // ボス弾だけ虹色グラデ（ボスと同じhueを使用）
+    if(bossActive && !b.isNormalBullet){
+      const bossHue = (elapsed / 8) % 360;
+      ctx.fillStyle = `hsl(${bossHue}, 100%, 75%)`;
+    }
+
+    ctx.beginPath();
+    ctx.arc(gx(b.x),gy(b.y),cell*0.14,0,7);
+    ctx.fill();
+  });
 
   particles.forEach(p=>{
     const a=1-p.t/p.life;
@@ -1504,6 +1631,29 @@ function drawGame(){
 
   ctx.textAlign='right'; ctx.fillStyle='#99e6ff'; ctx.font=`${cell*0.55}px monospace`;
   ctx.fillText('緊急避難：連続接触'+kanjiNum(dodgeRequiredTaps())+'回'+(dodgeFreeMode?'（自由）':''), W-10, H-cell*1.1);
+  ctx.restore();
+}
+
+function drawOpening(){
+  ctx.save();
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const lineHeight = openingLineHeight;
+  const totalHeight = openingTotalHeight;
+  const startY = H + cell*2;
+  const endY = -totalHeight - cell*2;
+  const t = Math.min(1, openingTimer/openingScrollMs);
+  const baseY = startY + (endY-startY)*t;
+  ctx.font=`${cell*0.75}px monospace`;
+  OPENING_LINES.forEach((line,i)=>{
+    const y = baseY + i*lineHeight;
+    if(y > -lineHeight && y < H+lineHeight){
+      ctx.fillStyle = '#fff';
+      ctx.fillText(line, W/2, y);
+    }
+  });
+  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
+  ctx.fillText('タップで開始', W/2, H*0.95);
   ctx.restore();
 }
 
@@ -1561,6 +1711,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 resize();
+startOpening();
 requestAnimationFrame(frame);
 
 })();
@@ -1594,9 +1745,12 @@ requestAnimationFrame(frame);
 
   async function submitScore(name, score, comboMax, clearTimeMs, usedFreeMode){
     const safeName = (name && String(name).trim()) ? String(name).trim().slice(0, MAX_NAME_LEN) : "匿名";
+    // scoreはゲーム側でBigInt。Firestoreはbigint型を保存できないためNumberへ変換する
+    // （安全整数の範囲を超える超巨大スコアは丸め誤差が出る可能性があるが、ランキング表示用途としては許容）
+    const scoreNum = Math.max(0, Math.floor(Number(score)));
     await addDoc(collection(db, RANKING_COLLECTION), {
       name: safeName,
-      score: Math.max(0, Math.floor(score)),
+      score: scoreNum,
       comboMax: Math.max(0, Math.floor(comboMax)),
       clearTimeMs: Math.max(0, Math.floor(clearTimeMs)),
       usedFreeMode: !!usedFreeMode,
