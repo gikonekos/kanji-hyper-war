@@ -1080,6 +1080,7 @@ async function submitRanking(name){
   statusEl.textContent = '送信中…';
   try{
     await window.KCRanking.submitScore(name, score, comboMax, clearTimeMs, runUsedFreeMode);
+    saveLocalBestScore(score); // 送信成功時に自己ベストを更新
     statusEl.textContent = '';
     document.getElementById('rankForm').style.display = 'none';
     document.getElementById('rankList').style.display = 'block';
@@ -1119,9 +1120,28 @@ document.getElementById('rankAnonBtn').addEventListener('click', ()=>{
 });
 document.getElementById('rankContinueHint').addEventListener('click', hideRankingOverlay);
 
+// ============ 自己ベスト管理（localStorage・軽量版） ============
+// 暗号化・署名検証は行わない（「速く、軽く、確実に」方針、チート対策としては機能しない旨は運用側で合意済み）。
+// 同一プレイヤーがランキングに重複して並ぶのを防ぐための、あくまで善意のプレイヤー向けの軽量ガード。
+const LOCAL_BEST_SCORE_KEY = 'kc_local_best_score';
+function getLocalBestScore(){
+  try{
+    const raw = localStorage.getItem(LOCAL_BEST_SCORE_KEY);
+    return raw ? BigInt(raw) : 0n;
+  }catch(e){ return 0n; }
+}
+function saveLocalBestScore(s){
+  try{ localStorage.setItem(LOCAL_BEST_SCORE_KEY, s.toString()); }catch(e){}
+}
+
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
-  if(reason==='clear'){ playVezarLoop(); showRankingForm(); } else { stopSong(); }
+  if(reason==='clear'){
+    playVezarLoop();
+    // 自己ベスト（localStorage）を更新できた場合のみランキング送信フォームを表示する。
+    // 超えなかった場合はフォームを出さず、通常のリザルト表示のまま進む（送信自体を行わない）。
+    if(score > getLocalBestScore()){ showRankingForm(); }
+  } else { stopSong(); }
 }
 
 // ============ オープニング ============
