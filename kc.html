@@ -20,7 +20,7 @@
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<div id="hint">タップして開始／ドラッグで移動／長押しで連射／すばやく2回タップで緊急避難（1回のみ）</div>
+<div id="hint">タップして開始／ドラッグで移動／長押しで連射／すばやく2回タップで緊急避難（３回）</div>
 <script>
 (function(){
 "use strict";
@@ -354,8 +354,10 @@ const V = {
   Q3: sp("O3E7E9E9E5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   Q6: sp("O3B7G9G9G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
   Q7: sp("O3A7A9A9A5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
+
   R1: sp("O3A5R2A5R2A5R2G9G2:O2A5R2A5R2A5R2G9G2:O2E5R2E5R2E5R2D9D2"),
-  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D7D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D2R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B3B1R1"),
+
+  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D5D3D1D1:R5R2R5R4O2E5E2R5R2R7R4D5D2R1R1:R5R2R5R4O2C5C2R5R2R7R4O1B5B1R1R1"),
   S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1R1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R1R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R1R1R1"),
   S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E2R5R2R7R2R7R1")
 };
@@ -885,7 +887,7 @@ function damageEnemy(e, isBoss){
   if(e.hp<=0){
     const base = isBoss ? 6000 : (e.strokes*20);
     combo++; comboMax=Math.max(comboMax,combo);
-    const multiplier = combo<=32 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-32);
+    const multiplier = combo<=8 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-8);
     const gained = Math.floor(base*multiplier);
     score = Math.min(10000000, score+gained);
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
@@ -957,17 +959,27 @@ function endGame(reason){
 
 // ============ スタッフロール ============
 const STAFF_ROLL_LINES = [
-  '原案・言葉遊び文化　あやしいわーるど',
-  '監督・企画　基建吉（擬古猫）',
-  'プログラム　Claude（Anthropic）',
-  '音楽　Dash!／VEZAR（PC-E500 PLAY3、基建吉）',
-  '　　　プロムナード（ムソルグスキー「展覧会の絵」より編曲）',
-  '協力　ChatGPT',
-  'デバッグ　ChatGPT／Gemini',
-  'Special Thanks　Gemini／Grok',
+  '原案・言葉遊び文化',
+  'あやしいわーるど',
+  '監督・企画',
+  '基建吉（擬古猫）',
+  'プログラム',
+  'Claude（Anthropic）',
+  '音楽',
+  'Dash!／VEZAR',
+  '基建吉（PC-E500 PLAY3）',
+  'プロムナード',
+  'ムソルグスキー',
+  '「展覧会の絵」より編曲',
+  '協力',
+  'ChatGPT',
+  'デバッグ',
+  'ChatGPT／Gemini',
+  'Special Thanks',
+  'Gemini／Grok',
   '© 2026 ZANTEI TECHNOLOGY'
 ];
-const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空きを取る
+const STAFF_ROLL_LINE_UNIT_LINES = 10; // 行間：8行分の改行ぶんの空きを取る
 const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
 const STAFF_ROLL_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
 const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
