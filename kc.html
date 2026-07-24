@@ -602,7 +602,7 @@ function drawDemoGameOver(){
   ctx.restore();
 }
 
-function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
+function pointerMove(cx,cy){ if(!input.active || demoActive) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
 canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];pointerDown(t.clientX,t.clientY);},{passive:false});
 canvas.addEventListener('touchmove',e=>{e.preventDefault();const t=e.touches[0];pointerMove(t.clientX,t.clientY);},{passive:false});
@@ -1647,8 +1647,12 @@ function updateLogic(dt){
     demoMoveTimer -= dt;
     if(demoMoveTimer<=0){
       input.active = true;
-      input.x = 1 + Math.random()*(cols-2);
-      input.y = 1 + Math.random()*(rows-2);
+      const rangeCells = 20/cell; // 要望対応：現在地から20ドット以内の移動に制限（ワープ感の解消）
+      const ang = Math.random()*Math.PI*2, dist = Math.random()*rangeCells;
+      const nx = player.x + Math.cos(ang)*dist;
+      const ny = player.y + Math.sin(ang)*dist;
+      input.x = Math.max(0.5, Math.min(cols-0.5, nx));
+      input.y = Math.max(0.5, Math.min(rows-0.5, ny));
       input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
       demoMoveTimer = 1000; // 要望対応：1秒ごとに乱数で移動
     }
