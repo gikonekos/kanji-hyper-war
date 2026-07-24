@@ -552,6 +552,17 @@ function recomputeKeyDir(){
   if(keyHeld){ if(!wasHeld && !pointerHeld){ input.downTime = performance.now(); } input.active = true; }
   else if(!pointerHeld){ input.active = false; }
 }
+// 不具合修正：keyDirを計算するだけで実際の移動目標(input.x/y)へ反映する処理が無く、
+// キー入力そのものでは自機が動かなかった。押し続けている間、自機の少し先に目標点を
+// 置き続けることで移動させる（毎フレーム呼び出す）
+const KEY_MOVE_LOOKAHEAD = 6;
+function updateKeyboardMovement(){
+  if(!keyHeld || pointerHeld) return; // マウス/タッチ操作中はそちらを優先
+  const mag = Math.hypot(keyDir.x, keyDir.y) || 1;
+  const nx = keyDir.x/mag, ny = keyDir.y/mag;
+  input.x = player.x + nx*KEY_MOVE_LOOKAHEAD;
+  input.y = player.y + ny*KEY_MOVE_LOOKAHEAD;
+}
 
 // ============ アトラクトモード（無操作デモループ） ============
 let idleTimer = 0;
@@ -1528,7 +1539,8 @@ function updateDodge(){
 let playerTopLocked = false; // 要望対応：一番上に到達したら、一番下に着くまで上方向へ動けなくする
 function updatePlayerMovement(dt){
   if(input.active){
-    const TOUCH_OFFSET_Y = demoActive ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモは実タッチでないため適用しない
+    const usingKeyboardMove = keyHeld && !pointerHeld;
+    const TOUCH_OFFSET_Y = (demoActive || usingKeyboardMove) ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモ・キーボード操作では適用しない
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     let tyRaw=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
     if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
@@ -1794,6 +1806,7 @@ function updateLogic(dt){
   updateStageGrace(dt);
   if(updateBossProgression()) return;
   updateDodge();
+  updateKeyboardMovement();
   updatePlayerMovement(dt);
   updatePlayerFire(dt);
   updateEnemies(dt);
