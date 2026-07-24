@@ -505,6 +505,7 @@ function pointerDown(cx,cy){
     else { stopSong(); state='title'; }
   }
   else if(state==='staffroll'){ stopSong(); state='title'; }
+  else if(state==='opening'){ state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
@@ -951,20 +952,58 @@ function resetGame(){
   runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
+
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
   if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
 }
 
-// ============ スタッフロール ============
+// ============ オープニング ============
+const OPENING_LINES = [
+  'AIシステムが',
+  '未知のウイルスに感染。',
+  '漢字データが暴走！',
+  '汚染された文字を',
+  '消去せよ！'
+];
+const OPENING_LINE_UNIT_LINES = 10; // 行間：8行分の改行ぶんの空きを取る
+const OPENING_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
+const OPENING_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
+let OpeningTimer = 0;
+let OpeningScrollMs = 16000;  // startOpeningで内容量に応じて動的に再計算される
+let OpeningLineHeight = 0;
+let OpeningTotalHeight = 0;
+
+function startOpening(){
+  state='opening'; OpeningTimer = 0;
+  OpeningLineHeight = cell*0.9*OPENING_LINE_UNIT_LINES;
+  OpeningTotalHeight = OPENING_LINES.length*OpeningLineHeight;
+  const distance = H + OpeningTotalHeight + cell*4;
+  OpeningScrollMs = distance * OPENING_SPEED_MS_PER_CELL / cell;
+}
+
+// ============ エンディング・スタッフロール ============
 const STAFF_ROLL_LINES = [
+  '暴走した漢字は消えた。',
+  'AIも停止した。',
+  '　',
+  'しかし……',
+  '　',
+  'AIにウイルスを作らせた',
+  '人間は',
+  '今もどこかで',
+  '新たな命令を入力している。',
+  '　',
   '原案・言葉遊び文化',
   'あやしいわーるど',
   '監督・企画',
   '基建吉（擬古猫）',
+  'ストーリー',
+  'ChatGPT（OpenAI）',
   'プログラム',
   'Claude（Anthropic）',
+  'Grok（xAI）',
   '音楽',
   'Dash!／VEZAR',
   '基建吉（PC-E500 PLAY3）',
@@ -976,7 +1015,7 @@ const STAFF_ROLL_LINES = [
   'デバッグ',
   'ChatGPT／Gemini',
   'Special Thanks',
-  'Gemini／Grok',
+  'All Players!',
   '© 2026 ZANTEI TECHNOLOGY'
 ];
 const STAFF_ROLL_LINE_UNIT_LINES = 10; // 行間：8行分の改行ぶんの空きを取る
@@ -988,6 +1027,7 @@ let staffRollScrollMs = 16000;  // startStaffRollで内容量に応じて動的�
 let staffRollLineHeight = 0;
 let staffRollTotalHeight = 0;
 let resultClearTimer = 0;
+
 function startStaffRoll(){
   state='staffroll'; staffRollTimer = 0;
   staffRollLineHeight = cell*0.9*STAFF_ROLL_LINE_UNIT_LINES;
@@ -1213,6 +1253,11 @@ function updateStars(dt){
 }
 
 function updateLogic(dt){
+  if(state==='opening'){
+    OpeningTimer += dt;
+    if(OpeningTimer >= OpeningScrollMs + OPENING_HOLD_MS){ state='title'; }
+    return;
+  }
   if(state==='warning'){
     bossClearTimer -= dt;
     if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
@@ -1259,6 +1304,7 @@ function draw(){
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
   else if(state==='staffroll') drawStaffRoll();
+  else if(state==='opening') drawOpening();
 }
 
 function drawStars(){
@@ -1421,6 +1467,29 @@ function drawStaffRoll(){
   ctx.restore();
 }
 
+function drawOpening(){
+  ctx.save();
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const lineHeight = OpeningLineHeight;
+  const totalHeight = OpeningTotalHeight;
+  const startY = H + cell*2;
+  const endY = -totalHeight - cell*2;
+  const t = Math.min(1, OpeningTimer/OpeningScrollMs);
+  const baseY = startY + (endY-startY)*t;
+  ctx.font=`${cell*0.75}px monospace`;
+  OPENING_LINES.forEach((line,i)=>{
+    const y = baseY + i*lineHeight;
+    if(y > -lineHeight && y < H+lineHeight){
+      ctx.fillStyle = '#fff';
+      ctx.fillText(line, W/2, y);
+    }
+  });
+  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
+  ctx.fillText('タップで開始', W/2, H*0.95);
+  ctx.restore();
+}
+
 function drawResult(){
   ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
@@ -1452,6 +1521,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 resize();
+startOpening();
 requestAnimationFrame(frame);
 
 })();
