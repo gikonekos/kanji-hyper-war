@@ -298,7 +298,8 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
       parts.forEach(evs=>{
         const durMsSum = evs.reduce((sum,e)=>sum+e.ms,0);
         if(lineDurMs - durMsSum > 0.01) evs.push({freq:0, ms:lineDurMs-durMsSum}); // 最初の行だけ足りない分を休符で補完
-        evs.push({freq:0, ms:durMs(3,tempo)}); // 最初の行の末尾には追加で明示的な休符
+        // 訂正：ここに固定長(durMs(3,tempo))の休符を無条件で追加していたのを削除。
+        // 実際の音長から導かれていない決め打ちの休符がずれの原因と疑われるため（要実機確認）。
       });
     }
     parts.forEach((evs,k)=>{ streams[k].push(...evs); });
@@ -559,6 +560,11 @@ function pointerDown(cx,cy){
       if(invincibleTapCount>=INVINCIBLE_TAP_REQUIRED){ invincibleMode = true; invincibleTapCount = 0; }
       return; // ゲーム開始はしない
     }
+    // モード選択ボタン（3分間タイムアタック／時間無制限）
+    if(cy > H*0.585 && cy < H*0.665){
+      if(cx > W*0.06 && cx < W*0.48){ gameMode='timeattack'; startGame(); return; }
+      if(cx > W*0.52 && cx < W*0.94){ gameMode='unlimited'; startGame(); return; }
+    }
     startGame();
   }
   else if(state==='result'){
@@ -604,6 +610,7 @@ let bossSpawnedFor=[false,false,false];
 let bossActive=null;
 let bossClearTimer=0;
 let bossPending=null;
+let gameMode = 'timeattack'; // 'timeattack'（3分）または'unlimited'（時間無制限）。タイトルのモード選択ボタンで切替
 let score=0n, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMode=false;
 
 const player={x:cols/2,y:rows-2,hp:5,maxHp:5,invuln:0,fireTimer:0};
@@ -680,14 +687,15 @@ function spawnStage3PhraseFormation(){
   let phrase1 = Math.random()<0.7 ? PHRASE_POOL[0] : PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
   let phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
 
-  // 連続文字チェック
+  // 連続文字チェック（1フレーズ内の隣接同字）
   let attempts = 0;
   while(hasConsecutiveSameChars(phrase1.text) && attempts < 20){
     phrase1 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
     attempts++;
   }
+  // フレーズ2は「自身の隣接同字」に加え「フレーズ1との文字重複」も無いものを選び直す
   attempts = 0;
-  while(hasConsecutiveSameChars(phrase2.text) && attempts < 20){
+  while((hasConsecutiveSameChars(phrase2.text) || sharesAnyChar(phrase1.text, phrase2.text)) && attempts < 30){
     phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
     attempts++;
   }
@@ -716,6 +724,11 @@ function hasConsecutiveSameChars(str){
   for(let i=1; i<str.length; i++){
     if(str[i] === str[i-1]) return true;
   }
+  return false;
+}
+function sharesAnyChar(a, b){
+  const setA = new Set(a.split(''));
+  for(const ch of b){ if(setA.has(ch)) return true; }
   return false;
 }
 
@@ -860,7 +873,7 @@ function updateFormationAnchor(dt){
     // インベーダー仕様：残数が減るほど加速する（初期数に対する残存比率で速度倍率を決める。上限は抑えめに）
     const ratio = stage0WaveInitialCount>0 ? Math.max(0.1, marchers.length/stage0WaveInitialCount) : 1;
     const speedMul = 1 + (1-ratio)*1.2;
-    formation.anchorX += formation.dir * dt/1000*0.55*speedMul;
+    formation.anchorX += formation.dir * dt/1000*0.275*speedMul; // 基礎速度を1/2に（要望対応、加速仕様は維持）
     if(formation.anchorX > rightBound || formation.anchorX < leftBound){
       formation.dir *= -1;
       formation.anchorX = Math.max(leftBound, Math.min(rightBound, formation.anchorX));
@@ -975,6 +988,23 @@ function fireAimedBullet(e,speed){
   const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1;
   eBullets.push({x:e.x,y:e.y,vx:dx/d*speed,vy:dy/d*speed,color});
 }
+function fireHomingBullets(e,n,speed){
+  n = Math.min(n,4); // 要望：追尾弾は数を少なく抑える（最大4発）
+  const color = e.color || '#ff3b3b';
+  for(let i=0;i<n;i++){
+    const spread = n>1 ? (i-(n-1)/2)*0.5 : 0;
+    const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1;
+    const baseVx=dx/d*speed, baseVy=dy/d*speed;
+    // 初速に少し扇状のばらつきを持たせつつ、以降updateEnemyBullets側で自機方向へ緩やかに旋回させる
+    const cos=Math.cos(spread), sin=Math.sin(spread);
+    eBullets.push({
+      x:e.x, y:e.y,
+      vx: baseVx*cos - baseVy*sin,
+      vy: baseVx*sin + baseVy*cos,
+      color, homing:true, homingLife:1800
+    });
+  }
+}
 function addPopup(x,y,text,color){ popups.push({x,y,text,color,life:700,t:0}); }
 function addParticles(x,y,n,color){
   for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,life:300+Math.random()*300,t:0,ch:(Math.random()<0.5?'炎':'火'),color});
@@ -1062,6 +1092,39 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// ============ NGワード判定（hashes.txt.gzを展開せず参照） ============
+// マッチ時のみ小文字化してハッシュ照合、問題なければ元の入力（大文字小文字そのまま）を復帰させる。
+let ngHashSetPromise = null;
+function loadNgHashes(){
+  if(ngHashSetPromise) return ngHashSetPromise;
+  ngHashSetPromise = (async () => {
+    try{
+      const res = await fetch('hashes.txt.gz');
+      const ds = new DecompressionStream('gzip');
+      const text = await new Response(res.body.pipeThrough(ds)).text();
+      return new Set(text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean));
+    }catch(e){
+      console.error('NGワードリストの読み込みに失敗しました', e);
+      return new Set(); // 失敗時はフィルタなしでゲーム進行を止めない
+    }
+  })();
+  return ngHashSetPromise;
+}
+async function sha256Hex(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function filterNgName(rawName){
+  const trimmed = (rawName||'').trim();
+  if(!trimmed) return trimmed;
+  try{
+    const hashes = await loadNgHashes();
+    const hash = await sha256Hex(trimmed.toLowerCase());
+    if(hashes.has(hash)) return 'ゲスト';
+  }catch(e){ console.error(e); }
+  return trimmed; // 該当なしなら元の大文字小文字のまま返す
+}
+
 function showRankingForm(){
   rankingFormActive = true;
   document.getElementById('rankScoreLine').textContent =
@@ -1081,7 +1144,8 @@ async function submitRanking(name){
   submitBtn.disabled = true; anonBtn.disabled = true;
   statusEl.textContent = '送信中…';
   try{
-    await window.KCRanking.submitScore(name, score, comboMax, clearTimeMs, runUsedFreeMode);
+    const safeName = await filterNgName(name);
+    await window.KCRanking.submitScore(safeName, score, comboMax, clearTimeMs, runUsedFreeMode);
     saveLocalBestScore(score); // 送信成功時に自己ベストを更新
     statusEl.textContent = '';
     document.getElementById('rankForm').style.display = 'none';
@@ -1111,7 +1175,7 @@ async function refreshRankingList(){
 function hideRankingOverlay(){
   document.getElementById('rankOverlay').style.display = 'none';
   rankingFormActive = false;
-  state='title'; // 要望対応：VEZARは題名に戻っても止めず鳴らし続ける
+  stopSong(); state='title'; // 訂正：題名画面ではVEZARを流さず止める
 }
 
 document.getElementById('rankSubmitBtn').addEventListener('click', ()=>{
@@ -1226,7 +1290,7 @@ function finishStaffRollFlow(){
   if(resultReason==='clear' && score > getLocalBestScore()){
     showRankingForm();
   } else {
-    state='title'; // 要望対応：VEZARは題名に戻っても止めず鳴らし続ける
+    stopSong(); state='title'; // 訂正：題名画面ではVEZARを流さず止める
   }
 }
 
@@ -1240,7 +1304,7 @@ const BOSS_STAGE_CONFIG = [
     fireInterval: 850,
     fire(b){ fireEnemyBullet(b,3); }
   },
-  { // 第二形態：sin/cosの複雑軌道＋広がる弾＋時々自機狙い弾を追加
+  { // 第二形態：sin/cosの複雑軌道＋広がる弾＋螺旋弾（回転する放射弾）を追加
     move(b, elapsed){
       const t = elapsed - b.moveT0;
       const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
@@ -1250,9 +1314,9 @@ const BOSS_STAGE_CONFIG = [
       b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
     },
     fireInterval: 600,
-    fire(b){ fireEnemyBullet(b,5); fireAimedBullet(b,6.5); }
+    fire(b, elapsed){ fireEnemyBullet(b,5); fireRadialBullets(b,4,3.6,elapsed/600); }
   },
-  { // 第三形態：同じ軌道＋弾幕シューティング級の放射状弾（回転しながら連射）
+  { // 第三形態：同じ軌道＋弾幕シューティング級の放射状弾（回転しながら連射）＋追尾弾
     move(b, elapsed){
       const t = elapsed - b.moveT0;
       const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
@@ -1264,7 +1328,7 @@ const BOSS_STAGE_CONFIG = [
     fireInterval: 380,
     fire(b, elapsed){
       fireRadialBullets(b, 5, 4.5, elapsed/450);  // 10 → 5 に半減
-      fireAimedBullet(b,7);
+      fireHomingBullets(b, 4, 5.5); // 追尾弾（少なめ・最大4発）
     }
   }
 ];
@@ -1337,8 +1401,17 @@ function updatePlayerMovement(dt){
     const TOUCH_OFFSET_Y = 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     const ty=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
-    player.x += (tx-player.x)*0.35;
-    player.y += (ty-player.y)*0.35;
+    const dx=tx-player.x, dy=ty-player.y;
+    const dist=Math.hypot(dx,dy);
+    // ワープ修正：瞬間移動ではなく「ものすごい速さで到達」させる。30fps基準で速度上限を設定
+    const MAX_SPEED_CELLS_PER_30FPS = 2.0;
+    const maxStep = MAX_SPEED_CELLS_PER_30FPS * (dt/(1000/30));
+    if(dist<=maxStep || dist===0){
+      player.x=tx; player.y=ty;
+    } else {
+      player.x += dx/dist*maxStep;
+      player.y += dy/dist*maxStep;
+    }
   }
   if(player.invuln>0) player.invuln -= dt;
 }
@@ -1360,7 +1433,7 @@ function updateEnemies(dt){
     const e=enemies[i];
     if(e.hitFlash>0) e.hitFlash-=dt;
     e.fireTimer -= dt;
-    if(e.fireTimer<=0 && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
+    if(e.fireTimer<=0 && e.x>0 && e.x<cols && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
     if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
     if(e.pattern==='approach' && e.y>rows+2){ enemies.splice(i,1); }
   }
@@ -1377,6 +1450,7 @@ function updateBoss(dt){
     cfg.move(b, elapsed, dt);
   }
   b.x = Math.max(2,Math.min(cols-2,b.x));
+  b.y = Math.max(1,Math.min(rows-2,b.y));
   b.fireTimer -= dt;
   if(b.fireTimer<=0 && !stageGraceActive){
     const cfg = BOSS_STAGE_CONFIG[Math.min(stageIndex, BOSS_STAGE_CONFIG.length-1)];
@@ -1426,6 +1500,15 @@ function updatePlayerBullets(dt){
 function updateEnemyBullets(dt){
   for(let i=eBullets.length-1;i>=0;i--){
     const b=eBullets[i];
+    if(b.homing && b.homingLife>0){
+      b.homingLife -= dt;
+      const dx=player.x-b.x, dy=player.y-b.y, d=Math.hypot(dx,dy)||1;
+      const speed=Math.hypot(b.vx,b.vy)||5;
+      const targetVx=dx/d*speed, targetVy=dy/d*speed;
+      const turnRate=0.06; // 追尾の旋回の緩やかさ（急旋回しすぎない）
+      b.vx += (targetVx-b.vx)*turnRate;
+      b.vy += (targetVy-b.vy)*turnRate;
+    }
     b.x+=b.vx*dt/1000; b.y+=b.vy*dt/1000;
     if(b.y>rows+1||b.x<-1||b.x>cols+1){ eBullets.splice(i,1); continue; }
     if(player.invuln<=0 && !invincibleMode){
@@ -1474,7 +1557,7 @@ function updateLogic(dt){
   }
   if(state!=='playing') return;
   elapsed += dt;
-  if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
+  if(gameMode==='timeattack' && elapsed>=GAME_DURATION){ endGame('timeup'); return; }
 
   updateApproachPhase(dt);
   updateStageGrace(dt);
@@ -1522,8 +1605,12 @@ function drawTitle(){
   ctx.fillText('漢字超戦', W/2, H*0.38);
   ctx.fillStyle='#ffd23b'; ctx.font=`${cell*0.9}px monospace`;
   ctx.fillText('タップしてスタート', W/2, H*0.55);
-  ctx.fillStyle='#3bb0ff'; ctx.font=`${cell*0.6}px monospace`;
-  ctx.fillText('― 3分間タイムアタック ―', W/2, H*0.62);
+  ctx.fillStyle='#3bb0ff'; ctx.font=`${cell*0.55}px monospace`;
+  ctx.fillText('３分間タイムアタック', W*0.27, H*0.625);
+  ctx.fillStyle='#3bffb0'; ctx.font=`${cell*0.55}px monospace`;
+  ctx.fillText('時間無制限', W*0.73, H*0.625);
+  ctx.fillStyle='#555'; ctx.font=`${cell*0.4}px monospace`;
+  ctx.fillText('モードを選んでタップ', W/2, H*0.685);
   ctx.fillStyle='#888'; ctx.font=`${cell*0.45}px monospace`;
   ctx.fillText('© 2026 ZANTEI TECHNOLOGY', W/2, H*0.92);
   if(secretTapCount>0 && secretTapCount<SECRET_TAP_REQUIRED){
@@ -1532,11 +1619,11 @@ function drawTitle(){
   }
   if(dodgeFreeMode){
     ctx.fillStyle='#66ffcc'; ctx.font=`${cell*0.5}px monospace`;
-    ctx.fillText('緊急避難自由モード解禁', W/2, H*0.7);
+    ctx.fillText('緊急避難自由モード解禁', W/2, H*0.75);
   }
   if(invincibleMode){
     ctx.fillStyle='#ffcc33'; ctx.font=`${cell*0.5}px monospace`;
-    ctx.fillText('無敵モード解禁', W/2, H*(dodgeFreeMode?0.76:0.7));
+    ctx.fillText('無敵モード解禁', W/2, H*(dodgeFreeMode?0.81:0.75));
   }
   ctx.restore();
 }
@@ -1651,10 +1738,16 @@ function drawGame(){
     ctx.textAlign='left';
   }
 
-  const remain=Math.max(0,GAME_DURATION-elapsed), sec=Math.ceil(remain/1000);
   ctx.textAlign='right';
-  ctx.fillStyle = sec<=10 ? '#ff3b3b' : '#ffffff';
-  ctx.fillText(kanjiNum(sec)+'秒', W-10, 8);
+  if(gameMode==='timeattack'){
+    const remain=Math.max(0,GAME_DURATION-elapsed), sec=Math.ceil(remain/1000);
+    ctx.fillStyle = sec<=10 ? '#ff3b3b' : '#ffffff';
+    ctx.fillText(kanjiNum(sec)+'秒', W-10, 8);
+  } else {
+    const sec=Math.floor(elapsed/1000);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(kanjiNum(sec)+'秒経過', W-10, 8);
+  }
 
   ctx.textAlign='left'; ctx.fillStyle='#ff5577';
   let hpStr=''; for(let i=0;i<player.maxHp;i++) hpStr += i<player.hp?'●':'○';
