@@ -215,67 +215,78 @@ function parseMMLPart(str, state){
 
 function scheduleSong(actx, segments, tempo, loop, gainVal){
   gainVal = gainVal!==undefined?gainVal:0.13;
-  // segments: [[p1str,p2str,p3str], ...]。元のPLAY3仕様通り、各行（セグメント）ごとに
-  // 一番長いパートを基準に他パートは無音待機してから次の行へ進む（パート間のズレを防止）。
-  // オクターブ/デフォルト音長はパートごとにセグメントをまたいで引き継ぐ（原曲の記法に合わせるため）。
+  // segments: [[p1str,p2str,p3str], ...]。1要素＝原曲PLAY文1行（≒1小節）として扱う。
+  // 元のPLAY3仕様通り、各小節ごとに一番長いパートを基準に他パートは休符待機してから
+  // 次の小節へ進む（パート間のズレを防止）。オクターブ/デフォルト音長は小節をまたいで引き継ぐ。
+  // ここでは「暗黙のズレ吸収」ではなく、足りない分の休符イベントを明示的に追加している
+  // （Dash!/プロムナード/VEZAR共通。どの曲・どの小節でも同じ処理が適用される）。
   const partStates = [{oct:3,defLen:5},{oct:3,defLen:5},{oct:3,defLen:5}];
-  const segEvents = segments.map(seg => seg.map((s,k)=>parseMMLPart(s||'', partStates[k])));
+  const segEvents = segments.map(seg => {
+    const parts = seg.map((s,k)=>
+      parseMMLPart(s||'', partStates[k]).map(ev=>({freq:ev.freq, ms:durMs(ev.len,tempo)}))
+    );
+    const lineDurMs = Math.max(...parts.map(evs=>evs.reduce((sum,e)=>sum+e.ms,0)));
+    parts.forEach(evs=>{
+      const durMsSum = evs.reduce((sum,e)=>sum+e.ms,0);
+      if(lineDurMs - durMsSum > 0.01) evs.push({freq:0, ms:lineDurMs-durMsSum}); // 足りない分を休符で明示的に補完
+    });
+    return parts;
+  });
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
 
-  // 1周分をスケジュールし、終了時刻を返す（実際の発音予約はここでしか行わない）
-  function scheduleOneIteration(startTime){
-    let t = startTime;
-    segEvents.forEach(parts=>{
-      let segEnd = t;
-      parts.forEach(events=>{
-        let pt = t;
-        events.forEach(ev=>{
-          const d = durMs(ev.len, tempo)/1000;
-          if(ev.freq>0){
-            const osc=actx.createOscillator();
-            osc.type='square';
-            osc.frequency.value=ev.freq;
-            const g=actx.createGain();
-            g.gain.setValueAtTime(0.0001,pt);
-            g.gain.linearRampToValueAtTime(1,pt+0.01);
-            g.gain.setValueAtTime(1,Math.max(pt+0.01,pt+d*0.75));
-            g.gain.linearRampToValueAtTime(0.0001,pt+d);
-            osc.connect(g); g.connect(master);
-            osc.start(pt); osc.stop(pt+d+0.02);
-          }
-          pt += d;
-        });
-        segEnd = Math.max(segEnd, pt);
+  // 小節1つ分だけスケジュールし、終了時刻を返す（実際の発音予約はここでしか行わない）
+  function scheduleBar(barParts, startTime){
+    let barEnd = startTime;
+    barParts.forEach(events=>{
+      let pt = startTime;
+      events.forEach(ev=>{
+        const d = ev.ms/1000;
+        if(ev.freq>0){
+          const osc=actx.createOscillator();
+          osc.type='square';
+          osc.frequency.value=ev.freq;
+          const g=actx.createGain();
+          g.gain.setValueAtTime(0.0001,pt);
+          g.gain.linearRampToValueAtTime(1,pt+0.01);
+          g.gain.setValueAtTime(1,Math.max(pt+0.01,pt+d*0.75));
+          g.gain.linearRampToValueAtTime(0.0001,pt+d);
+          osc.connect(g); g.connect(master);
+          osc.start(pt); osc.stop(pt+d+0.02);
+        }
+        pt += d;
       });
-      t = segEnd; // 一番長いパートに揃えてから次の行へ（休符待機と同義）
+      barEnd = Math.max(barEnd, pt);
     });
-    return t;
+    return barEnd;
   }
 
-  // 先読みバッファ方式：常に一定秒数分は予約済みにしておくことで、
-  // JSスレッドの一時停止（GC・描画・省電力など）があっても無音が生じないようにする。
-  // setTimeoutの発火タイミング精度そのものには依存しない設計。
-  const BUFFER_AHEAD_SEC = 90;
-  let scheduledUntil = actx.currentTime + 0.05;
+  // 小節単位の先読み方式：数秒分だけ・小節ごとに小さく予約する。
+  // 曲全体や1周分を一括予約しない（GC/処理落ちの影響を抑えるため）。
+  // どの小節で問題が起きたかも barIndex で追いやすい。
+  const BUFFER_AHEAD_SEC = 3;
+  let barIndex = 0;
+  let nextBarStart = actx.currentTime + 0.05;
   let watchdog = null;
-  function fillBuffer(){
+  function fillBars(){
     if(stopped) return;
     let guard = 0;
-    while(scheduledUntil < actx.currentTime + BUFFER_AHEAD_SEC && guard < 80){
-      scheduledUntil = scheduleOneIteration(scheduledUntil);
+    while(nextBarStart < actx.currentTime + BUFFER_AHEAD_SEC && guard < 40){
+      if(barIndex >= segEvents.length){
+        if(!loop) return;
+        barIndex = 0;
+      }
+      nextBarStart = scheduleBar(segEvents[barIndex], nextBarStart);
+      barIndex++;
       guard++;
-      if(!loop) break; // ループしない曲は1周だけスケジュールして終わり
     }
   }
 
-  fillBuffer();
-  if(loop){
-    watchdog = setInterval(()=>{
-      if(stopped){ clearInterval(watchdog); return; }
-      fillBuffer();
-    }, 10000);
-  }
+  fillBars();
+  watchdog = setInterval(()=>{
+    if(stopped){ clearInterval(watchdog); return; }
+    fillBars();
+  }, 400);
   return {
     stop(){
       stopped=true;
@@ -691,7 +702,7 @@ function triggerBossSequence(){
 function actuallySpawnBoss(){
   const p = bossPending;
   const hp = 30 + stageIndex*15;
-  bossActive = { ch:p.ch, strokes:p.strokes, hp, maxHp:hp, x:cols/2, y:-2, vx:0.6, vy:0.22, fireTimer:700, hitFlash:0 };
+  bossActive = { ch:p.ch, strokes:p.strokes, hp, maxHp:hp, x:cols/2, y:-2, vx:0.6, vy:2.5, fireTimer:700, hitFlash:0 };
   bossPending = null;
   state = 'playing';
   spawnEscortFormation();
@@ -812,35 +823,45 @@ function endGame(reason){
 const LOGIC_STEP=1000/60;
 let logicAccum=0, lastTime=performance.now();
 
-function updateLogic(dt){
-  if(state==='warning'){
-    bossClearTimer -= dt;
-    if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
-    return;
-  }
-  if(state!=='playing') return;
-  elapsed += dt;
-
-  if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
-
-  if(approachActive){
-    approachTimer -= dt;
-    if(stageIndex!==2){
-      approachSpawnTimer -= dt;
-      if(approachSpawnTimer<=0 && approachSpawnedCount<approachQuota){
-        spawnApproachEnemy();
-        approachSpawnTimer = 220+Math.random()*180;
-      }
+// ============ ボスのステージ別設定（データ駆動） ============
+const BOSS_STAGE_CONFIG = [
+  { // 第一形態：シンプルな横揺れ
+    move(b, elapsed, dt){ b.x += Math.sin(elapsed/900)*(dt/1000)*1.2; }
+  },
+  { // 第二形態以降：sin/cosを組み合わせた複雑な軌道
+    move(b, elapsed){
+      b.x = cols/2 + Math.sin(elapsed/1100)*5 + Math.cos(elapsed/1900)*1.8;
+      b.y = b.baseY + Math.sin(elapsed/1500)*1.6;
     }
-    const clearedEarly = enemies.length===0 && approachSpawnedCount>=approachQuota;
-    if(clearedEarly || approachTimer<=0){
-      approachActive = false;
-      if(enemies.length>0){ enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff')); } // ボス出現時と同様に一掃
-      enemies = [];
-      setupFormationForStage(); // 本編編隊を開始
+  },
+  { // 第三形態：第二形態と同じ軌道パターン（必要ならここだけ個別調整可能）
+    move(b, elapsed){
+      b.x = cols/2 + Math.sin(elapsed/1100)*5 + Math.cos(elapsed/1900)*1.8;
+      b.y = b.baseY + Math.sin(elapsed/1500)*1.6;
     }
   }
+];
 
+function updateApproachPhase(dt){
+  if(!approachActive) return;
+  approachTimer -= dt;
+  if(stageIndex!==2){
+    approachSpawnTimer -= dt;
+    if(approachSpawnTimer<=0 && approachSpawnedCount<approachQuota){
+      spawnApproachEnemy();
+      approachSpawnTimer = 220+Math.random()*180;
+    }
+  }
+  const clearedEarly = enemies.length===0 && approachSpawnedCount>=approachQuota;
+  if(clearedEarly || approachTimer<=0){
+    approachActive = false;
+    if(enemies.length>0){ enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff')); } // ボス出現時と同様に一掃
+    enemies = [];
+    setupFormationForStage(); // 本編編隊を開始
+  }
+}
+
+function updateStageGrace(dt){
   if(graceWaitingForAssembly){
     const allArrived = enemies.length>0 && enemies.every(e=>e.pattern!=='incoming');
     if(allArrived){ graceWaitingForAssembly=false; stageGraceActive=true; stageGraceTimer=2000; }
@@ -849,35 +870,42 @@ function updateLogic(dt){
     stageGraceTimer -= dt;
     if(stageGraceTimer<=0) stageGraceActive=false;
   }
+}
 
-  let suppressProgressionCheck = dodgeSuppressNext;
+// 編隊クリア判定でウェーブ2/ボスへ進行させる。緊急避難直後は1回だけ抑制する
+function updateBossProgression(){
+  let suppress = dodgeSuppressNext;
   dodgeSuppressNext = false;
+  if(suppress) return false;
+  if(approachActive || bossSpawnedFor[stageIndex] || bossActive || bossPending) return false;
   const BOSS_SAFETY_TIMEOUT = 50000; // 万一編隊を倒しきれない場合の保険（編隊クリアが基本トリガー）
   const formationCleared = enemies.length===0;
-  if(suppressProgressionCheck){
-    // 緊急避難で編隊を消した直後は「本物のクリア」として扱わない（誤ってウェーブ2/ボスへ進むのを防ぐ）
-  } else if(!approachActive && !bossSpawnedFor[stageIndex] && !bossActive && !bossPending){
-    if(stageIndex===0 && formationCleared && stageWave<1){
-      stageWave = 1;
-      spawnStage0Wave(); // 2ウェーブ目
-    } else if(formationCleared || (elapsed-stageStartElapsed)>=BOSS_SAFETY_TIMEOUT){
-      bossSpawnedFor[stageIndex]=true;
-      triggerBossSequence();
-      return;
-    }
+  if(stageIndex===0 && formationCleared && stageWave<1){
+    stageWave = 1;
+    spawnStage0Wave(); // 2ウェーブ目
+    return false;
   }
-
-  if(input.dodgeRequested){
-    input.dodgeRequested=false;
-    enemies.forEach(e=>{ addParticles(e.x,e.y,6,'#66ccff'); score+=Math.floor(e.strokes*10); });
-    enemies=[]; eBullets=[];
-    dodgeSuppressNext = true; // 次フレームの進行判定を1回だけ抑制
-    if(bossActive) addParticles(bossActive.x,bossActive.y,10,'#66ccff');
-    SFX.dodge();
-    addPopup(player.x, player.y-1, '緊急避難', '#99e6ff');
-    dodgeUsesUsed++;
+  if(formationCleared || (elapsed-stageStartElapsed)>=BOSS_SAFETY_TIMEOUT){
+    bossSpawnedFor[stageIndex]=true;
+    triggerBossSequence();
+    return true; // このフレームはここで打ち切り
   }
+  return false;
+}
 
+function updateDodge(){
+  if(!input.dodgeRequested) return;
+  input.dodgeRequested=false;
+  enemies.forEach(e=>{ addParticles(e.x,e.y,6,'#66ccff'); score+=Math.floor(e.strokes*10); });
+  enemies=[]; eBullets=[];
+  dodgeSuppressNext = true; // 次フレームの進行判定を1回だけ抑制
+  if(bossActive) addParticles(bossActive.x,bossActive.y,10,'#66ccff');
+  SFX.dodge();
+  addPopup(player.x, player.y-1, '緊急避難', '#99e6ff');
+  dodgeUsesUsed++;
+}
+
+function updatePlayerMovement(dt){
   if(input.active){
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     const ty=Math.max(0.5,Math.min(rows-0.5,input.y));
@@ -885,7 +913,9 @@ function updateLogic(dt){
     player.y += (ty-player.y)*0.35;
   }
   if(player.invuln>0) player.invuln -= dt;
+}
 
+function updatePlayerFire(dt){
   if(input.active){
     const held = performance.now()-input.downTime;
     if(held>=200){
@@ -893,10 +923,11 @@ function updateLogic(dt){
       if(player.fireTimer<=0){ pBullets.push({x:player.x,y:player.y-0.6,vx:0,vy:-7}); player.fireTimer=140; SFX.shot(); }
     }
   } else { player.fireTimer=0; }
+}
 
+function updateEnemies(dt){
   updateFormationAnchor(dt);
   enemies.forEach(e=>updateFormationEnemy(e,dt));
-
   for(let i=enemies.length-1;i>=0;i--){
     const e=enemies[i];
     if(e.hitFlash>0) e.hitFlash-=dt;
@@ -905,23 +936,25 @@ function updateLogic(dt){
     if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
     if(e.pattern==='approach' && e.y>rows+2){ enemies.splice(i,1); }
   }
+}
 
-  if(bossActive){
-    const b=bossActive;
-    if(b.vy>0){ b.y += b.vy*dt/1000; if(b.y>rows*0.28){ b.vy=0; b.baseY=b.y; } }
-    if(stageIndex>=1 && b.vy===0){
-      // 二面以降はsin/cosを組み合わせた複雑な軌道に
-      b.x = cols/2 + Math.sin(elapsed/1100)*5 + Math.cos(elapsed/1900)*1.8;
-      b.y = b.baseY + Math.sin(elapsed/1500)*1.6;
-    } else {
-      b.x += Math.sin(elapsed/900)*(dt/1000)*1.2;
-    }
-    b.x = Math.max(2,Math.min(cols-2,b.x));
-    b.fireTimer -= dt;
-    if(b.fireTimer<=0 && !stageGraceActive){ fireEnemyBullet(b,3); b.fireTimer=850; }
-    if(b.hitFlash>0) b.hitFlash-=dt;
+function updateBoss(dt){
+  if(!bossActive) return;
+  const b=bossActive;
+  if(b.vy>0){
+    b.y += b.vy*dt/1000;
+    if(b.y>rows*0.28){ b.vy=0; b.baseY=b.y; }
+  } else {
+    const cfg = BOSS_STAGE_CONFIG[Math.min(stageIndex, BOSS_STAGE_CONFIG.length-1)];
+    cfg.move(b, elapsed, dt);
   }
+  b.x = Math.max(2,Math.min(cols-2,b.x));
+  b.fireTimer -= dt;
+  if(b.fireTimer<=0 && !stageGraceActive){ fireEnemyBullet(b,3); b.fireTimer=850; }
+  if(b.hitFlash>0) b.hitFlash-=dt;
+}
 
+function updatePlayerBullets(dt){
   for(let i=pBullets.length-1;i>=0;i--){
     const b=pBullets[i];
     b.x+=b.vx*dt/1000; b.y+=b.vy*dt/1000;
@@ -937,7 +970,9 @@ function updateLogic(dt){
     }
     if(hit||b.y<-1){ pBullets.splice(i,1); if(!hit) combo=0; }
   }
+}
 
+function updateEnemyBullets(dt){
   for(let i=eBullets.length-1;i>=0;i--){
     const b=eBullets[i];
     b.x+=b.vx*dt/1000; b.y+=b.vy*dt/1000;
@@ -947,15 +982,44 @@ function updateLogic(dt){
       if(Math.hypot(b.x-player.x,b.y-player.y)<r){
         eBullets.splice(i,1); player.hp-=1; player.invuln=1200; combo=0;
         addParticles(player.x,player.y,10,'#ff5555'); SFX.playerHit();
-        if(player.hp<=0){ endGame('gameover'); return; }
+        if(player.hp<=0){ endGame('gameover'); return true; }
       }
     }
   }
+  return false;
+}
 
+function updateEffects(dt){
   for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.t+=dt; p.x+=p.vx*dt/1000; p.y+=p.vy*dt/1000; if(p.t>p.life) particles.splice(i,1); }
   for(let i=popups.length-1;i>=0;i--){ const p=popups[i]; p.t+=dt; p.y-=dt/1000*0.6; if(p.t>p.life) popups.splice(i,1); }
+}
 
+function updateStars(dt){
   stars.forEach(s=>{ s.y += s.speed*dt/1000; s.twinklePhase += s.twinkleSpeed*dt/1000; if(s.y>rows){ s.y=-1; s.x=Math.random()*cols; } });
+}
+
+function updateLogic(dt){
+  if(state==='warning'){
+    bossClearTimer -= dt;
+    if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
+    return;
+  }
+  if(state!=='playing') return;
+  elapsed += dt;
+  if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
+
+  updateApproachPhase(dt);
+  updateStageGrace(dt);
+  if(updateBossProgression()) return;
+  updateDodge();
+  updatePlayerMovement(dt);
+  updatePlayerFire(dt);
+  updateEnemies(dt);
+  updateBoss(dt);
+  updatePlayerBullets(dt);
+  if(updateEnemyBullets(dt)) return;
+  updateEffects(dt);
+  updateStars(dt);
 }
 
 let renderAccum=0; const RENDER_STEP=1000/30;
