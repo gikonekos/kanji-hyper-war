@@ -1564,7 +1564,8 @@ function updatePlayerMovement(dt){
     const dist=Math.hypot(dx,dy);
     // ワープ修正：瞬間移動ではなく「ものすごい速さで到達」させる。30fps基準で速度上限を設定
     // デモ中は要望対応でゆっくり滑らかに動かす（20ドット程度の移動が一瞬でスナップしないように）
-    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : 2.0;
+    // 要望対応：キーボード操作時のみ移動速度を1/2に（タッチ/マウスは従来通り）
+    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : (usingKeyboardMove ? 1.0 : 2.0);
     const maxStep = MAX_SPEED_CELLS_PER_30FPS * (dt/(1000/30));
     if(dist<=maxStep || dist===0){
       player.x=tx; player.y=ty;

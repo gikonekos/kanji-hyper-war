@@ -552,6 +552,17 @@ function recomputeKeyDir(){
   if(keyHeld){ if(!wasHeld && !pointerHeld){ input.downTime = performance.now(); } input.active = true; }
   else if(!pointerHeld){ input.active = false; }
 }
+// 不具合修正：keyDirを計算するだけで実際の移動目標(input.x/y)へ反映する処理が無く、
+// キー入力そのものでは自機が動かなかった。押し続けている間、自機の少し先に目標点を
+// 置き続けることで移動させる（毎フレーム呼び出す）
+const KEY_MOVE_LOOKAHEAD = 1;
+function updateKeyboardMovement(){
+  if(!keyHeld || pointerHeld) return; // マウス/タッチ操作中はそちらを優先
+  const mag = Math.hypot(keyDir.x, keyDir.y) || 1;
+  const nx = keyDir.x/mag, ny = keyDir.y/mag;
+  input.x = player.x + nx*KEY_MOVE_LOOKAHEAD;
+  input.y = player.y + ny*KEY_MOVE_LOOKAHEAD;
+}
 
 // ============ アトラクトモード（無操作デモループ） ============
 let idleTimer = 0;
@@ -655,20 +666,34 @@ window.addEventListener('keyup', e=>{
   if(MOVE_KEY_VECTORS[e.code]){ keysHeld.delete(e.code); recomputeKeyDir(); }
 });
 
-// 隠しコマンド：タイトル画面で「上上下下左右左右BA」入力で緊急避難フリーモード（デバッグ用）
+// 要望対応：タイトル画面のキーボード操作。左右（矢印／A・D）でモード選択をトグル、
+// それ以外のキーでそのモードのままゲーム開始。ただしコナミコマンド（上上下下左右左右BA）の
+// 入力を優先する：次に期待されるコナミキーと一致する場合はコマンド入力として消費し、
+// モード切替にもスタートにも使わない（要望対応：上下キー単体でのスタートより優先）
+const TITLE_LEFT_KEYS = new Set(['ArrowLeft','KeyA']);
+const TITLE_RIGHT_KEYS = new Set(['ArrowRight','KeyD']);
 const KONAMI_SEQUENCE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','KeyB','KeyA'];
 let konamiProgress = 0;
 window.addEventListener('keydown', e=>{
   if(state!=='title'){ konamiProgress = 0; return; }
+  if(attractMode) return;
+
   if(e.code === KONAMI_SEQUENCE[konamiProgress]){
     konamiProgress++;
     if(konamiProgress>=KONAMI_SEQUENCE.length){
       dodgeFreeMode = true;
       konamiProgress = 0;
     }
-  } else {
-    konamiProgress = (e.code===KONAMI_SEQUENCE[0]) ? 1 : 0;
+    return; // コナミ入力として消費（モード切替・スタートには使わない）
   }
+  konamiProgress = (e.code===KONAMI_SEQUENCE[0]) ? 1 : 0;
+
+  if(TITLE_LEFT_KEYS.has(e.code) || TITLE_RIGHT_KEYS.has(e.code)){
+    gameMode = (gameMode==='timeattack') ? 'unlimited' : 'timeattack'; // 選択肢は2つなのでどちらのキーでもトグルでよい
+    return;
+  }
+  ensureAudio();
+  startGame();
 });
 
 let state='title';
@@ -1265,7 +1290,7 @@ async function refreshRankingList(){
   try{
     const top10 = await window.KCRanking.getRanking();
     itemsEl.innerHTML = top10.length ? top10.map((r,i)=>
-      `<li><span>${i+1}位　${escapeHtml(r.name||'匿名')}${r.usedFreeMode?'　★':''}</span><span>${r.score}点　${(r.clearTimeMs/1000).toFixed(1)}秒</span></li>`
+      `<li><span>${i+1}位　${escapeHtml(r.name||'匿名')}${r.usedFreeMode?'　★':''}</span><span>${BigInt(r.score||0)}点　${(r.clearTimeMs/1000).toFixed(1)}秒</span></li>`
     ).join('') : '<li>まだ記録がありません</li>';
   }catch(err){
     console.error(err);
@@ -1528,7 +1553,8 @@ function updateDodge(){
 let playerTopLocked = false; // 要望対応：一番上に到達したら、一番下に着くまで上方向へ動けなくする
 function updatePlayerMovement(dt){
   if(input.active){
-    const TOUCH_OFFSET_Y = demoActive ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモは実タッチでないため適用しない
+    const usingKeyboardMove = keyHeld && !pointerHeld;
+    const TOUCH_OFFSET_Y = (demoActive || usingKeyboardMove) ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモ・キーボード操作では適用しない
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     let tyRaw=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
     if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
@@ -1538,7 +1564,8 @@ function updatePlayerMovement(dt){
     const dist=Math.hypot(dx,dy);
     // ワープ修正：瞬間移動ではなく「ものすごい速さで到達」させる。30fps基準で速度上限を設定
     // デモ中は要望対応でゆっくり滑らかに動かす（20ドット程度の移動が一瞬でスナップしないように）
-    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : 2.0;
+    // 要望対応：キーボード操作時のみ移動速度を1/2に（タッチ/マウスは従来通り）
+    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : (usingKeyboardMove ? 1.0 : 2.0);
     const maxStep = MAX_SPEED_CELLS_PER_30FPS * (dt/(1000/30));
     if(dist<=maxStep || dist===0){
       player.x=tx; player.y=ty;
@@ -1794,6 +1821,7 @@ function updateLogic(dt){
   updateStageGrace(dt);
   if(updateBossProgression()) return;
   updateDodge();
+  updateKeyboardMovement();
   updatePlayerMovement(dt);
   updatePlayerFire(dt);
   updateEnemies(dt);
@@ -1837,6 +1865,17 @@ function drawTitle(){
   ctx.fillText('漢字超戦', W/2, H*0.38);
   ctx.fillStyle='#ffd23b'; ctx.font=`${cell*0.9}px monospace`;
   ctx.fillText('タップしてスタート', W/2, H*0.55);
+  // 要望対応：キーボード選択中のモードを背景ハイライトで明示
+  ctx.save();
+  const hlY = H*0.625 - cell*0.4, hlH = cell*0.8;
+  if(gameMode==='timeattack'){
+    ctx.fillStyle='rgba(59,176,255,0.22)';
+    ctx.fillRect(W*0.06, hlY, W*0.42, hlH);
+  } else {
+    ctx.fillStyle='rgba(59,255,176,0.22)';
+    ctx.fillRect(W*0.52, hlY, W*0.42, hlH);
+  }
+  ctx.restore();
   ctx.fillStyle='#3bb0ff'; ctx.font=`${cell*0.55}px monospace`;
   ctx.fillText('３分間タイムアタック', W*0.27, H*0.625);
   ctx.fillStyle='#3bffb0'; ctx.font=`${cell*0.55}px monospace`;
@@ -2121,12 +2160,15 @@ requestAnimationFrame(frame);
 
   async function submitScore(name, score, comboMax, clearTimeMs, usedFreeMode){
     const safeName = (name && String(name).trim()) ? String(name).trim().slice(0, MAX_NAME_LEN) : "匿名";
-    // scoreはゲーム側でBigInt。Firestoreはbigint型を保存できないためNumberへ変換する
-    // （安全整数の範囲を超える超巨大スコアは丸め誤差が出る可能性があるが、ランキング表示用途としては許容）
-    const scoreNum = Math.max(0, Math.floor(Number(score)));
+    // 要望対応：scoreはゲーム側でBigInt。従来はNumberへ変換していたため、連撃二乗で
+    // 安全整数の範囲（2^53-1）を超えると精度が失われていた。文字列として送ることで
+    // 精度を保つ。ソート順（orderBy）を数値順と一致させるため、固定桁数へゼロ埋めする
+    // （24桁＝10^24-1まで対応。実用上、この桁数を超えるスコアは想定しない）
+    const scoreBig = (typeof score === 'bigint' ? score : BigInt(Math.max(0, Math.floor(Number(score) || 0))));
+    const scoreStr = (scoreBig < 0n ? 0n : scoreBig).toString().padStart(24, '0');
     await addDoc(collection(db, RANKING_COLLECTION), {
       name: safeName,
-      score: scoreNum,
+      score: scoreStr,
       comboMax: Math.max(0, Math.floor(comboMax)),
       clearTimeMs: Math.max(0, Math.floor(clearTimeMs)),
       usedFreeMode: !!usedFreeMode,
