@@ -276,7 +276,21 @@ function parseMMLPart(str, state){
   return events;
 }
 
-function scheduleSong(actx, segments, tempo, loop, gainVal){
+function tieMergeStream(events){
+  // 同音高が連続する場合、再トリガーせず1つの音として長さを合算する（タイ／スラー処理）
+  const out=[];
+  events.forEach(ev=>{
+    const last = out[out.length-1];
+    if(last && ev.freq>0 && last.freq===ev.freq){
+      last.ms += ev.ms;
+    } else {
+      out.push({freq:ev.freq, ms:ev.ms});
+    }
+  });
+  return out;
+}
+
+function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
   gainVal = gainVal!==undefined?gainVal:0.13;
   // 手順は2段階：
   // ①MMLを行（元のPLAY文1行）単位で解析し、パート間で足りない分を休符として明示的に追加する
@@ -304,6 +318,9 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
     }
     parts.forEach((evs,k)=>{ streams[k].push(...evs); });
   });
+  if(tieRepeats){
+    for(let k=0;k<3;k++){ streams[k] = tieMergeStream(streams[k]); }
+  }
 
   // ②全音符1つ分の長さで小節に分割し直す（またがる長い音符は小節境界で分割する）
   const wholeNoteMs = durMs(9, tempo); // 9 = 全音符
@@ -419,9 +436,9 @@ const V = {
   Q6: sp("O3B7G9G9G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
   Q7: sp("O3A7A9A9A5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   R1: sp("O3A5R2A5R2A5R2G9G2:O2A5R2A5R2A5R2G9G2:O2E5R2E5R2E5R2D9D2"),
-  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D7D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D2R5R2R7R3R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B5B2R5R2R7R3R1R1"),
-  S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R7R3R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R7R3R1R1"),
-  S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E5R5R2R7R2R7R2R2R1")
+  S1: sp("O3C5C2D5D2E5E2E5E2E5E2D5D5D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D5R3R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B5B5R3R1R1"),
+  S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B5B5B3B1B1:R7R2R5R2C5C2R5R2R5R2D2D5R2R5R5R3R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R2R5R5R3R1R1"),
+  S4: sp("O3G5G5G2F5F2E5E2D5D2C5C2O2B5B2B5B5B2B5B5B2B2B1:R5R5R2R5R2O2A5A2R5R2R5R2#G5#G2R5R5R2R5R5R2R2R1:R5R5R2R5R2O2F5F2R5R2R5R2E5E5R5R2R5R5R2R2R1")
 };
 function buildVezarSegments(){
   const seg=[]; // 各要素は [p1str,p2str,p3str]（原曲のPLAY文1行分）
@@ -484,7 +501,7 @@ function ensureAudio(){
 function stopSong(){ if(currentSong){ currentSong.stop(); currentSong=null; } }
 function playDash(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
 function playPromenade(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
-function playVezarLoop(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11); }
+function playVezarLoop(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11, true); }
 
 function noiseBurst(dur, f0, f1, gain){
   if(!actx) return;
@@ -550,6 +567,7 @@ let demoMoveTimer = 0;
 let demoDirAngle = 0; // デモの持続移動方向（慣性用）
 let demoPauseTimer = 0; // 「狙いを定める」演出用の一時停止
 let demoFireStopTimer = 0; // 要望対応：デモ中、弾を時々打たずに止める演出用
+let demoEdgeLockRight = false, demoEdgeLockLeft = false; // 要望対応：右端/左端到達でその方向への移動を却下（中央を超えるまで解除しない）
 const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
@@ -924,10 +942,12 @@ function updateFormationAnchor(dt){
         rightBound = Math.min(cols-1, c+MIN_SPAN/2);
       }
     }
-    // インベーダー仕様：残数が減るほど加速する（初期数に対する残存比率で速度倍率を決める。上限は抑えめに）
-    const ratio = stage0WaveInitialCount>0 ? Math.max(0.1, marchers.length/stage0WaveInitialCount) : 1;
-    const speedMul = 1 + (1-ratio)*1.2;
-    formation.anchorX += formation.dir * dt/1000*0.275*speedMul; // 基礎速度を1/2に（要望対応、加速仕様は維持）
+    // インベーダー仕様：残数が減るほど加速する（撃破ごとに線形加速し、残り1体で最速＝初速の8倍。要望対応で体感できるレベルに強化）
+    const STAGE1_MAX_SPEED_MUL = 8;
+    const totalForRamp = Math.max(1, stage0WaveInitialCount - 1);
+    const kills = stage0WaveInitialCount - marchers.length;
+    const speedMul = 1 + (STAGE1_MAX_SPEED_MUL - 1) * Math.min(1, kills / totalForRamp);
+    formation.anchorX += formation.dir * dt/1000*0.275*speedMul; // 基礎速度は1/2のまま、加速倍率のみ強化（要望対応）
     if(formation.anchorX > rightBound || formation.anchorX < leftBound){
       formation.dir *= -1;
       formation.anchorX = Math.max(leftBound, Math.min(rightBound, formation.anchorX));
@@ -1071,8 +1091,10 @@ function damageEnemy(e, isBoss){
     combo++; comboMax=Math.max(comboMax,combo);
     const multiplier = combo<=8 ? (1+combo*0.15) : (1+32*0.15) * Math.pow(1.25, combo-8);
     const gained = Math.floor(base*multiplier);
+    let gainedBig = BigInt(Math.max(0, gained));
+    if(combo>=8) gainedBig = gainedBig*gainedBig; // 要望対応：8連撃目から、撃破点そのものを1撃ごとに二乗にする
 
-    score = score + BigInt(gained);
+    score = score + gainedBig;
 
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
     addPopup(e.x,e.y,'連撃'+kanjiNum(combo),'#ffee33');
@@ -1146,6 +1168,7 @@ function startAttractDemo(){
   demoDirAngle = Math.random()*Math.PI*2;
   demoPauseTimer = 0;
   demoFireStopTimer = 0;
+  demoEdgeLockRight = false; demoEdgeLockLeft = false;
   // デモは無音のまま進行（ユーザー操作を経ていないためAudioContextが未初期化の可能性があり、
   // 無理に音を鳴らそうとしない＝「軽く、確実に」の方針に合わせる）
 }
@@ -1746,8 +1769,18 @@ function updateLogic(dt){
       demoDirAngle += da*turnRate; // 急な方向転換をせず慣性で滑らかに追従
 
       const rangeCells = 20/cell;
-      const nx = player.x + Math.cos(demoDirAngle)*rangeCells;
+      let nx = player.x + Math.cos(demoDirAngle)*rangeCells;
       const ny = player.y + Math.sin(demoDirAngle)*rangeCells;
+
+      // 要望対応：右端に到達したら右への移動を却下、左端に到達したら左への移動を却下。
+      // どちらも中央（cols/2）を超えるまで解除しない。脅威回避/獲物追跡より優先して最終的にnxへ適用する
+      if(player.x >= cols-1.5) demoEdgeLockRight = true;
+      if(player.x <= 1.5) demoEdgeLockLeft = true;
+      if(player.x < cols/2) demoEdgeLockRight = false;
+      if(player.x > cols/2) demoEdgeLockLeft = false;
+      if(demoEdgeLockRight && nx > player.x) nx = player.x;
+      if(demoEdgeLockLeft && nx < player.x) nx = player.x;
+
       input.active = true;
       input.x = Math.max(0.5, Math.min(cols-0.5, nx));
       input.y = Math.max(0.5, Math.min(rows-0.5, ny));
