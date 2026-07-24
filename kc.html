@@ -520,6 +520,21 @@ const SFX = {
 };
 
 const input = { active:false,x:0,y:0,downTime:0,lastTapTime:0,tapCount:0,dodgeRequested:false };
+// 矢印キー／WASD移動対応：タッチ/マウスとは独立に押下状態を追跡し、input.activeへ合成する
+let pointerHeld = false;
+let keyHeld = false;
+const keyDir = {x:0,y:0};
+const keysHeld = new Set();
+const MOVE_KEY_VECTORS = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0], KeyW:[0,-1], KeyS:[0,1], KeyA:[-1,0], KeyD:[1,0] };
+function recomputeKeyDir(){
+  let dx=0, dy=0;
+  for(const code of keysHeld){ const v=MOVE_KEY_VECTORS[code]; if(v){ dx+=v[0]; dy+=v[1]; } }
+  keyDir.x=dx; keyDir.y=dy;
+  const wasHeld = keyHeld;
+  keyHeld = (dx!==0 || dy!==0);
+  if(keyHeld){ if(!wasHeld && !pointerHeld){ input.downTime = performance.now(); } input.active = true; }
+  else if(!pointerHeld){ input.active = false; }
+}
 
 // ============ アトラクトモード（無操作デモループ） ============
 let idleTimer = 0;
@@ -534,6 +549,7 @@ let demoActive = false;
 let demoMoveTimer = 0;
 let demoDirAngle = 0; // デモの持続移動方向（慣性用）
 let demoPauseTimer = 0; // 「狙いを定める」演出用の一時停止
+let demoFireStopTimer = 0; // 要望対応：デモ中、弾を時々打たずに止める演出用
 const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
@@ -563,7 +579,7 @@ function pointerDown(cx,cy){
     state = 'title';
     return; // このタップ自体はゲーム開始などには使わない
   }
-  input.active=true; input.downTime=performance.now();
+  pointerHeld=true; input.active=true; input.downTime=performance.now();
   const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy;
   const now=performance.now();
   if(now-input.lastTapTime<350) input.tapCount++; else input.tapCount=1;
@@ -605,13 +621,21 @@ function drawDemoGameOver(){
 }
 
 function pointerMove(cx,cy){ if(!input.active || demoActive) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
-function pointerUp(){ input.active=false; }
+function pointerUp(){ pointerHeld=false; if(!keyHeld) input.active=false; }
 canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];pointerDown(t.clientX,t.clientY);},{passive:false});
 canvas.addEventListener('touchmove',e=>{e.preventDefault();const t=e.touches[0];pointerMove(t.clientX,t.clientY);},{passive:false});
 canvas.addEventListener('touchend',e=>{e.preventDefault();pointerUp();},{passive:false});
 canvas.addEventListener('mousedown',e=>pointerDown(e.clientX,e.clientY));
 canvas.addEventListener('mousemove',e=>pointerMove(e.clientX,e.clientY));
 canvas.addEventListener('mouseup',()=>pointerUp());
+
+// 矢印キー／WASDでの移動対応（SNSでの公言を受けてこのバージョンで実装）
+window.addEventListener('keydown', e=>{
+  if(MOVE_KEY_VECTORS[e.code] && state==='playing'){ keysHeld.add(e.code); recomputeKeyDir(); }
+});
+window.addEventListener('keyup', e=>{
+  if(MOVE_KEY_VECTORS[e.code]){ keysHeld.delete(e.code); recomputeKeyDir(); }
+});
 
 // 隠しコマンド：タイトル画面で「上上下下左右左右BA」入力で緊急避難フリーモード（デバッグ用）
 const KONAMI_SEQUENCE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','KeyB','KeyA'];
@@ -1121,6 +1145,7 @@ function startAttractDemo(){
   demoMoveTimer = 0;
   demoDirAngle = Math.random()*Math.PI*2;
   demoPauseTimer = 0;
+  demoFireStopTimer = 0;
   // デモは無音のまま進行（ユーザー操作を経ていないためAudioContextが未初期化の可能性があり、
   // 無理に音を鳴らそうとしない＝「軽く、確実に」の方針に合わせる）
 }
@@ -1167,11 +1192,22 @@ async function filterNgName(rawName){
   return trimmed; // 該当なしなら元の大文字小文字のまま返す
 }
 
+// 要望対応：一度入力した名前をcookieで保持し、次回以降フォームのデフォルトにする
+function saveNameCookie(name){
+  try{ document.cookie = 'kc_rank_name=' + encodeURIComponent(name) + '; max-age=31536000; path=/'; }catch(e){}
+}
+function loadNameCookie(){
+  try{
+    const m = document.cookie.match(/(?:^|; )kc_rank_name=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }catch(e){ return ''; }
+}
+
 function showRankingForm(){
   rankingFormActive = true;
   document.getElementById('rankScoreLine').textContent =
     `得点　${kanjiNum(score)}　連撃　${kanjiNum(comboMax)}　時間　${kanjiNum(Math.round(clearTimeMs/1000))}秒`;
-  document.getElementById('rankName').value = '';
+  document.getElementById('rankName').value = loadNameCookie();
   document.getElementById('rankStatus').textContent = '';
   document.getElementById('rankForm').style.display = 'block';
   document.getElementById('rankList').style.display = 'none';
@@ -1234,7 +1270,9 @@ function hideAttractRanking(){
 }
 
 document.getElementById('rankSubmitBtn').addEventListener('click', ()=>{
-  submitRanking(document.getElementById('rankName').value);
+  const name = document.getElementById('rankName').value;
+  saveNameCookie(name);
+  submitRanking(name);
 });
 document.getElementById('rankAnonBtn').addEventListener('click', ()=>{
   submitRanking('');
@@ -1491,6 +1529,10 @@ function updatePlayerMovement(dt){
 
 function updatePlayerFire(dt){
   if(input.active){
+    if(demoActive){
+      if(demoFireStopTimer>0){ demoFireStopTimer -= dt; return; } // 要望対応：時々撃たずに止まる
+      if(Math.random()<0.001) demoFireStopTimer = 250+Math.random()*400;
+    }
     const held = performance.now()-input.downTime;
     if(held>=200){
       player.fireTimer -= dt;
@@ -1687,8 +1729,16 @@ function updateLogic(dt){
         desiredAngle = Math.atan2(prey.y-player.y, prey.x-player.x); // 近くの敵へ近づく
         turnRate = 0.08;
       } else {
-        desiredAngle = demoDirAngle; // 目的がなければ今の方向を維持
-        turnRate = 0.08;
+        // 要望対応：目的がない状態で端付近に留まり続けて「固まる」問題の修正。
+        // 端に近いときは中央方向へ、それ以外は従来通り現在の方向を維持
+        const nearEdge = player.x<1.5 || player.x>cols-1.5 || player.y<1.5 || player.y>rows-1.5;
+        if(nearEdge){
+          desiredAngle = Math.atan2(rows/2-player.y, cols/2-player.x);
+          turnRate = 0.15;
+        } else {
+          desiredAngle = demoDirAngle;
+          turnRate = 0.08;
+        }
       }
       let da = desiredAngle - demoDirAngle;
       while(da>Math.PI) da -= Math.PI*2;
