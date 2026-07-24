@@ -532,6 +532,8 @@ const ATTRACT_RANKING_MS = 10000; // 要望対応：30秒→10秒
 const ATTRACT_DEMO_OVER_MS = 1000;
 let demoActive = false;
 let demoMoveTimer = 0;
+let demoDirAngle = 0; // デモの持続移動方向（慣性用）
+let demoPauseTimer = 0; // 「狙いを定める」演出用の一時停止
 const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
@@ -1117,6 +1119,8 @@ function startAttractDemo(){
   resetGame();
   state = 'playing';
   demoMoveTimer = 0;
+  demoDirAngle = Math.random()*Math.PI*2;
+  demoPauseTimer = 0;
   // デモは無音のまま進行（ユーザー操作を経ていないためAudioContextが未初期化の可能性があり、
   // 無理に音を鳴らそうとしない＝「軽く、確実に」の方針に合わせる）
 }
@@ -1657,16 +1661,50 @@ function updateLogic(dt){
   if(gameMode==='timeattack' && !demoActive && elapsed>=GAME_DURATION){ endGame('timeup'); return; }
 
   if(demoActive){
-    // 要望対応：1秒に1回の目標地点更新→毎フレーム更新に変更（現在地から最大20px範囲で乱数選択）。
-    // 「移動しては止まる」の1秒周期がカクつきの原因だったため、毎フレーム小刻みに更新し連続的な動きにする。
-    input.active = true;
-    const rangeCells = 20/cell;
-    const ang = Math.random()*Math.PI*2, dist = Math.random()*rangeCells;
-    const nx = player.x + Math.cos(ang)*dist;
-    const ny = player.y + Math.sin(ang)*dist;
-    input.x = Math.max(0.5, Math.min(cols-0.5, nx));
-    input.y = Math.max(0.5, Math.min(rows-0.5, ny));
-    input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
+    // 人間らしい動きへの改善：①方向の持続性（慣性）②敵弾を避ける/敵に近づく反応③緩急（たまに静止）
+    // ※「左右往復バイアス」は今回のスコープ外
+    if(demoPauseTimer>0){
+      demoPauseTimer -= dt;
+      input.active = true;
+      input.x = player.x; input.y = player.y; // 狙いを定めているように、その場に留まる
+    } else {
+      // 一番近い脅威（敵弾）と一番近い獲物（敵）を探す
+      let threat=null, threatDist=Infinity;
+      for(const b of eBullets){
+        const d = Math.hypot(b.x-player.x, b.y-player.y);
+        if(d<3.5 && d<threatDist){ threat=b; threatDist=d; }
+      }
+      let prey=null, preyDist=Infinity;
+      for(const e of enemies){
+        const d = Math.hypot(e.x-player.x, e.y-player.y);
+        if(d<preyDist){ prey=e; preyDist=d; }
+      }
+      let desiredAngle, turnRate;
+      if(threat){
+        desiredAngle = Math.atan2(player.y-threat.y, player.x-threat.x); // 弾から逃げる
+        turnRate = 0.5; // 危険には素早く反応
+      } else if(prey && Math.random()<0.7){
+        desiredAngle = Math.atan2(prey.y-player.y, prey.x-player.x); // 近くの敵へ近づく
+        turnRate = 0.08;
+      } else {
+        desiredAngle = demoDirAngle; // 目的がなければ今の方向を維持
+        turnRate = 0.08;
+      }
+      let da = desiredAngle - demoDirAngle;
+      while(da>Math.PI) da -= Math.PI*2;
+      while(da<-Math.PI) da += Math.PI*2;
+      demoDirAngle += da*turnRate; // 急な方向転換をせず慣性で滑らかに追従
+
+      const rangeCells = 20/cell;
+      const nx = player.x + Math.cos(demoDirAngle)*rangeCells;
+      const ny = player.y + Math.sin(demoDirAngle)*rangeCells;
+      input.active = true;
+      input.x = Math.max(0.5, Math.min(cols-0.5, nx));
+      input.y = Math.max(0.5, Math.min(rows-0.5, ny));
+      input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
+
+      if(!threat && Math.random()<0.003){ demoPauseTimer = 300+Math.random()*400; } // たまに一瞬静止（緩急）
+    }
   }
 
   updateApproachPhase(dt);
