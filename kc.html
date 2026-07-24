@@ -498,7 +498,11 @@ function pointerDown(cx,cy){
     }
     startGame();
   }
-  else if(state==='result'){ stopSong(); state='title'; }
+  else if(state==='result'){
+    if(resultReason==='clear'){ startStaffRoll(); }
+    else { stopSong(); state='title'; }
+  }
+  else if(state==='staffroll'){ stopSong(); state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
@@ -726,6 +730,20 @@ function updateFormationEnemy(e, dt){
       if(e.loopT>=1){ e.diveState='returning'; e.y=-1.2; e.x=cx; }
     }
   }
+  // 向きの回転をなめらかに補間（斜め移動→正面停止時に瞬時スナップしていた不具合の修正）
+  // 宙返り中（diveState==='loop'）は既存のloopT連続回転をそのまま使うので対象外
+  if(e.diveState!=='loop'){
+    const dx = e.x-e.prevX, dy = e.y-e.prevY;
+    let target = 0; // 直進・停止中は正面（無回転）
+    if(Math.hypot(dx,dy) > 0.01 && Math.abs(dx)>0.01 && Math.abs(dy)>0.01){
+      target = Math.atan2(dy,dx)+Math.PI/2;
+    }
+    if(e.rotAngle===undefined) e.rotAngle = target; // 初回は即時反映（出現時の不要な回転を防ぐ）
+    let diff = target - e.rotAngle;
+    while(diff > Math.PI) diff -= Math.PI*2;
+    while(diff < -Math.PI) diff += Math.PI*2;
+    e.rotAngle += diff * Math.min(1, dt/220); // 約220msで追従、正面へもなめらかに戻る
+  }
 }
 
 function updateFormationAnchor(dt){
@@ -936,6 +954,23 @@ function endGame(reason){
   state='result'; resultReason=reason;
   if(reason==='clear'){ playVezarLoop(); } else { stopSong(); }
 }
+
+// ============ スタッフロール ============
+const STAFF_ROLL_LINES = [
+  '原案・言葉遊び文化　あやしいわーるど',
+  '監督・企画　基建吉（擬古猫）',
+  'プログラム　Claude（Anthropic）',
+  '音楽　Dash!／VEZAR（PC-E500 PLAY3、基建吉）',
+  '　　　プロムナード（ムソルグスキー「展覧会の絵」より編曲）',
+  '協力　ChatGPT',
+  'デバッグ　ChatGPT／Gemini',
+  'Special Thanks　Gemini／Grok',
+  '© 2026 ZANTEI TECHNOLOGY'
+];
+const STAFF_ROLL_SCROLL_MS = 16000; // スクロールにかける時間
+const STAFF_ROLL_HOLD_MS = 1500;    // スクロール完了後、自動で題名へ戻るまでの待機
+let staffRollTimer = 0;
+function startStaffRoll(){ state='staffroll'; staffRollTimer = 0; }
 
 const LOGIC_STEP=1000/60;
 let logicAccum=0, lastTime=performance.now();
@@ -1158,6 +1193,11 @@ function updateLogic(dt){
     if(bossClearTimer<=0){ actuallySpawnBoss(); SFX.warning(); }
     return;
   }
+  if(state==='staffroll'){
+    staffRollTimer += dt;
+    if(staffRollTimer >= STAFF_ROLL_SCROLL_MS + STAFF_ROLL_HOLD_MS){ stopSong(); state='title'; }
+    return;
+  }
   if(state!=='playing') return;
   elapsed += dt;
   if(elapsed>=GAME_DURATION){ endGame('timeup'); return; }
@@ -1186,6 +1226,7 @@ function draw(){
   else if(state==='playing') drawGame();
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
+  else if(state==='staffroll') drawStaffRoll();
 }
 
 function drawStars(){
@@ -1259,16 +1300,13 @@ function drawGame(){
       ctx.translate(gx(e.x), gy(e.y));
       ctx.rotate(e.loopT*Math.PI*2);
       ctx.fillText(e.ch, 0, 0);
+    } else if(e.rotAngle && Math.abs(e.rotAngle)>0.01){
+      // 斜め移動時〜正面復帰までなめらかに回転（updateFormationEnemyで補間済みのrotAngleを使用）
+      ctx.translate(gx(e.x), gy(e.y));
+      ctx.rotate(e.rotAngle);
+      ctx.fillText(e.ch, 0, 0);
     } else {
-      const dx = e.x-(e.prevX!==undefined?e.prevX:e.x), dy = e.y-(e.prevY!==undefined?e.prevY:e.y);
-      if(Math.hypot(dx,dy) > 0.01 && Math.abs(dx)>0.01 && Math.abs(dy)>0.01){
-        // 斜め移動時は進行方向に合わせて向きを変える
-        ctx.translate(gx(e.x), gy(e.y));
-        ctx.rotate(Math.atan2(dy,dx)+Math.PI/2);
-        ctx.fillText(e.ch, 0, 0);
-      } else {
-        ctx.fillText(e.ch, gx(e.x), gy(e.y));
-      }
+      ctx.fillText(e.ch, gx(e.x), gy(e.y));
     }
     ctx.restore();
   });
@@ -1325,6 +1363,29 @@ function drawGame(){
 
   ctx.textAlign='right'; ctx.fillStyle='#99e6ff'; ctx.font=`${cell*0.55}px monospace`;
   ctx.fillText('緊急避難：連続接触'+kanjiNum(dodgeRequiredTaps())+'回'+(dodgeFreeMode?'（自由）':''), W-10, H-cell*1.1);
+  ctx.restore();
+}
+
+function drawStaffRoll(){
+  ctx.save();
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const lineHeight = cell*1.5;
+  const totalHeight = STAFF_ROLL_LINES.length*lineHeight;
+  const startY = H + cell*2;
+  const endY = -totalHeight - cell*2;
+  const t = Math.min(1, staffRollTimer/STAFF_ROLL_SCROLL_MS);
+  const baseY = startY + (endY-startY)*t;
+  ctx.font=`${cell*0.75}px monospace`;
+  STAFF_ROLL_LINES.forEach((line,i)=>{
+    const y = baseY + i*lineHeight;
+    if(y > -lineHeight && y < H+lineHeight){
+      ctx.fillStyle = line.startsWith('©') ? '#888' : '#fff';
+      ctx.fillText(line, W/2, y);
+    }
+  });
+  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
+  ctx.fillText('タップで題名へ戻る', W/2, H*0.95);
   ctx.restore();
 }
 
