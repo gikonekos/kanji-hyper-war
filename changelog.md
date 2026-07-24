@@ -355,6 +355,13 @@ motoikenkichi.com/kc/kcv28.html のURLが告知された（ランキング機能
   ことを確認
 - 構文チェック（通常script／type="module"script）も実施済み
 
+## kcv51 キーボード移動の調整用定数を整理
+- 後々の調整をしやすくするため、キーボード移動関連の数値をファイル冒頭
+  付近の1箇所（`KEY_MOVE_LOOKAHEAD`＝先読み距離、
+  `KEY_MOVE_SPEED_CELLS_PER_30FPS`＝移動速度）にまとめた。動作自体は
+  kcv50から変更なし（リファクタのみ）
+- 構文チェック（通常script／type="module"script）実施済み
+
 ## 現時点（kcv48）で残っている既知の課題
 - VEZAR音切れ修正（v45）・新エンジン（kcv47）双方の実機確認（改善したか
   どうか未確認）
