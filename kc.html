@@ -1576,15 +1576,14 @@ requestAnimationFrame(frame);
     getFirestore, collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-  // ⚠️ 下記はご自身のFirebaseプロジェクトの設定値に置き換えてください
-  // （Firebaseコンソール → プロジェクトの設定 → 全般 → マイアプリ → 「SDK の設定と構成」）
+  // motoikenkichi プロジェクトの実際のFirebase設定値（Firebaseコンソールより取得済み）
   const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyB5OQMqMUJlTnRpsVtVG9NbFLSBsO6QoJE",
+    authDomain: "motoikenkichi.firebaseapp.com",
+    projectId: "motoikenkichi",
+    storageBucket: "motoikenkichi.firebasestorage.app",
+    messagingSenderId: "296584054759",
+    appId: "1:296584054759:web:c7d9c62302d65a2c105f42"
   };
 
   const RANKING_COLLECTION = "kanjichosen_ranking";
