@@ -6,6 +6,8 @@
 
 ▶ [motoikenkichi.com](https://motoikenkichi.com/) からゲームプレイでプレイ可能
 
+▶[gikonekos.github.io](https://gikonekos.github.io/kanji-hyper-war/kc.html)からもプレイ可能。
+
 ## ライセンス
 スクリプト　MIT License（[LICENSE](LICENSE)参照）
 
