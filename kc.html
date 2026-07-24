@@ -520,6 +520,18 @@ const SFX = {
 };
 
 const input = { active:false,x:0,y:0,downTime:0,lastTapTime:0,tapCount:0,dodgeRequested:false };
+
+// ============ アトラクトモード（無操作デモループ） ============
+let idleTimer = 0;
+const ATTRACT_START_IDLE_MS = 15000; // 題名で何もしない状態が続いたらループ開始
+let attractMode = false;
+let attractPhase = 'title'; // 'title' | 'ranking' | 'demo' | 'demoover'
+let attractPhaseTimer = 0;
+const ATTRACT_TITLE_MS = 30000;
+const ATTRACT_RANKING_MS = 30000;
+const ATTRACT_DEMO_OVER_MS = 1000;
+let demoActive = false;
+let demoMoveTimer = 0;
 const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
@@ -541,6 +553,14 @@ let invincibleTapCount = 0;
 let invincibleTapLastTime = 0;
 function pointerDown(cx,cy){
   ensureAudio();
+  idleTimer = 0; // 何らかの操作があったら無操作タイマーをリセット
+  if(attractMode){
+    // アトラクトループ中は、どの画面でもタップした瞬間に中断し、操作可能な本物の題名へ戻す
+    attractMode = false; demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0;
+    hideAttractRanking();
+    state = 'title';
+    return; // このタップ自体はゲーム開始などには使わない
+  }
   input.active=true; input.downTime=performance.now();
   const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy;
   const now=performance.now();
@@ -571,9 +591,17 @@ function pointerDown(cx,cy){
     if(resultReason==='clear'){ startStaffRoll(); }
     else { stopSong(); state='title'; }
   }
-  else if(state==='staffroll'){ if(!rankingFormActive){ finishStaffRollFlow(); } }
-  else if(state==='opening'){ state='title'; }
+  else if(state==='staffroll'){ if(!rankingFormActive && hasSeenStaffRoll()){ finishStaffRollFlow(); } }
+  else if(state==='opening'){ if(hasSeenOpening()){ state='title'; } }
 }
+function drawDemoGameOver(){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#ff2b2b'; ctx.font=`bold ${cell*2}px monospace`;
+  ctx.fillText('GAME OVER', W/2, H*0.5);
+  ctx.restore();
+}
+
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
 canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];pointerDown(t.clientX,t.clientY);},{passive:false});
@@ -1082,6 +1110,14 @@ function resetGame(){
   startApproachPhase();
 }
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
+function startAttractDemo(){
+  demoActive = true;
+  resetGame();
+  state = 'playing';
+  demoMoveTimer = 0;
+  // デモは無音のまま進行（ユーザー操作を経ていないためAudioContextが未初期化の可能性があり、
+  // 無理に音を鳴らそうとしない＝「軽く、確実に」の方針に合わせる）
+}
 
 // ============ グローバルランキング ============
 // Firebase側の実処理（submitScore/getRanking）は末尾の<script type="module">がwindow.KCRankingに公開する。
@@ -1178,6 +1214,19 @@ function hideRankingOverlay(){
   stopSong(); state='title'; // 訂正：題名画面ではVEZARを流さず止める
 }
 
+// アトラクトループ中のランキング表示：既存のrankOverlay/rankListを流用（送信フォームは出さない）
+async function showAttractRanking(){
+  document.getElementById('rankForm').style.display = 'none';
+  document.getElementById('rankList').style.display = 'block';
+  document.getElementById('rankContinueHint').style.display = 'none'; // タップで即中断するため専用ヒントは出さない
+  document.getElementById('rankOverlay').style.display = 'flex';
+  await refreshRankingList();
+}
+function hideAttractRanking(){
+  document.getElementById('rankOverlay').style.display = 'none';
+  document.getElementById('rankContinueHint').style.display = '';
+}
+
 document.getElementById('rankSubmitBtn').addEventListener('click', ()=>{
   submitRanking(document.getElementById('rankName').value);
 });
@@ -1199,6 +1248,13 @@ function getLocalBestScore(){
 function saveLocalBestScore(s){
   try{ localStorage.setItem(LOCAL_BEST_SCORE_KEY, s.toString()); }catch(e){}
 }
+
+// ============ 初見ロック（オープニング・エンディング/スタッフロール） ============
+// 一度最後まで見終わるまではタップでスキップできない。未視聴の間は「タップで～」のヒントも出さない。
+function hasSeenOpening(){ try{ return localStorage.getItem('kc_seen_opening')==='1'; }catch(e){ return true; } }
+function markSeenOpening(){ try{ localStorage.setItem('kc_seen_opening','1'); }catch(e){} }
+function hasSeenStaffRoll(){ try{ return localStorage.getItem('kc_seen_staffroll')==='1'; }catch(e){ return true; } }
+function markSeenStaffRoll(){ try{ localStorage.setItem('kc_seen_staffroll','1'); }catch(e){} }
 
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
@@ -1287,6 +1343,7 @@ function startStaffRoll(){
 function finishStaffRollFlow(){
   if(staffRollFinished) return;
   staffRollFinished = true;
+  markSeenStaffRoll();
   if(resultReason==='clear' && score > getLocalBestScore()){
     showRankingForm();
   } else {
@@ -1516,7 +1573,11 @@ function updateEnemyBullets(dt){
       if(Math.hypot(b.x-player.x,b.y-player.y)<r){
         eBullets.splice(i,1); player.hp-=1; player.invuln=1200; combo=0;
         addParticles(player.x,player.y,10,'#ff5555'); SFX.playerHit();
-        if(player.hp<=0){ endGame('gameover'); return true; }
+        if(player.hp<=0){
+          if(demoActive){ attractPhase='demoover'; attractPhaseTimer=0; state='demoover'; }
+          else { endGame('gameover'); }
+          return true;
+        }
       }
     }
   }
@@ -1535,7 +1596,7 @@ function updateStars(dt){
 function updateLogic(dt){
   if(state==='opening'){
     openingTimer += dt;
-    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ state='title'; }
+    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ markSeenOpening(); state='title'; }
     return;
   }
   if(state==='warning'){
@@ -1555,9 +1616,43 @@ function updateLogic(dt){
     if(staffRollTimer >= staffRollScrollMs + STAFF_ROLL_HOLD_MS){ finishStaffRollFlow(); }
     return;
   }
-  if(state!=='playing') return;
+  if(state==='title'){
+    updateStars(dt); // 要望対応：タイトル（アトラクトのランキング表示中も含む）で星を流す
+    if(!attractMode){
+      idleTimer += dt;
+      if(idleTimer >= ATTRACT_START_IDLE_MS){
+        attractMode = true; attractPhase = 'title'; attractPhaseTimer = 0;
+      }
+    } else {
+      attractPhaseTimer += dt;
+      if(attractPhase==='title' && attractPhaseTimer >= ATTRACT_TITLE_MS){
+        attractPhase = 'ranking'; attractPhaseTimer = 0; showAttractRanking();
+      } else if(attractPhase==='ranking' && attractPhaseTimer >= ATTRACT_RANKING_MS){
+        attractPhase = 'demo'; attractPhaseTimer = 0; hideAttractRanking(); startAttractDemo();
+      }
+    }
+    return;
+  }
+  if(state==='demoover'){
+    attractPhaseTimer += dt;
+    if(attractPhaseTimer >= ATTRACT_DEMO_OVER_MS){
+      demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0; state = 'title';
+    }
+    return;
+  }
   elapsed += dt;
-  if(gameMode==='timeattack' && elapsed>=GAME_DURATION){ endGame('timeup'); return; }
+  if(gameMode==='timeattack' && !demoActive && elapsed>=GAME_DURATION){ endGame('timeup'); return; }
+
+  if(demoActive){
+    demoMoveTimer -= dt;
+    if(demoMoveTimer<=0){
+      input.active = true;
+      input.x = 1 + Math.random()*(cols-2);
+      input.y = 1 + Math.random()*(rows-2);
+      input.downTime = performance.now() - 500; // 発射ディレイ(0.2秒)を満たした状態にしておく
+      demoMoveTimer = 1000; // 要望対応：1秒ごとに乱数で移動
+    }
+  }
 
   updateApproachPhase(dt);
   updateStageGrace(dt);
@@ -1581,10 +1676,11 @@ function draw(){
   drawStars();
   if(state==='title') drawTitle();
   else if(state==='opening') drawOpening();
-  else if(state==='playing') drawGame();
+  else if(state==='playing'){ drawGame(); if(demoActive) drawDemoGameOver(); }
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
   else if(state==='staffroll') drawStaffRoll();
+  else if(state==='demoover'){ drawGame(); drawDemoGameOver(); }
 }
 
 function drawStars(){
@@ -1776,8 +1872,10 @@ function drawOpening(){
       ctx.fillText(line, W/2, y);
     }
   });
-  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
-  ctx.fillText('タップで開始', W/2, H*0.95);
+  if(hasSeenOpening()){
+    ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
+    ctx.fillText('タップで開始', W/2, H*0.95);
+  }
   ctx.restore();
 }
 
@@ -1799,8 +1897,10 @@ function drawStaffRoll(){
       ctx.fillText(line, W/2, y);
     }
   });
-  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
-  ctx.fillText('タップで題名へ戻る', W/2, H*0.95);
+  if(hasSeenStaffRoll()){
+    ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
+    ctx.fillText('タップで題名へ戻る', W/2, H*0.95);
+  }
   ctx.restore();
 }
 
