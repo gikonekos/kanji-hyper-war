@@ -58,8 +58,14 @@ function resize(){
   canvas.style.width = W+'px'; canvas.style.height = H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
   isLandscape = W >= H;
+  const oldCols = cols, oldRows = rows;
   if(isLandscape){ cols=24; rows=14; } else { cols=14; rows=24; }
   cell = Math.min(W/cols, H/rows);
+  if(typeof player!=='undefined' && (oldCols!==cols || oldRows!==rows) && oldCols>0 && oldRows>0){
+    // グリッド比率が変わった分だけ自機位置を追従させる（向き変更時のリスケール、位置ズレのバグ修正）
+    player.x = player.x/oldCols*cols;
+    player.y = player.y/oldRows*rows;
+  }
   initStars();
 }
 window.addEventListener('resize', resize);
@@ -88,10 +94,44 @@ const BOSS_POOL = [
   ['電',13,'放電注意'],['頭',16,'思考停止'],['顔',18,'視認困難'],
   ['龍',16,'咆哮警戒'],['響',20,'轟音接近'],['驚',22,'制御不能']
 ];
-const TIER_WEAK   = KANJI_POOL.filter(k=>k[1]<=4);
-const TIER_MEDIUM = KANJI_POOL.filter(k=>k[1]>4 && k[1]<=9);
-const TIER_STRONG = KANJI_POOL.filter(k=>k[1]>9);
-function pickFromTier(tier){ const a = tier.length?tier:KANJI_POOL; return a[Math.floor(Math.random()*a.length)]; }
+
+// ステージ3（ギャラガ）専用：意味のある8文字フレーズ編隊。他ステージの通常敵とは文字を共有しない（予約）
+const PHRASE_POOL = [
+  { text:'某子玉将天津炒飯', strokes:[9,3,5,10,4,9,8,12] },
+  { text:'冷麺開始満員御礼', strokes:[7,16,12,8,12,10,12,5] },
+  { text:'甘藍太郎奇妙世界', strokes:[5,18,4,9,8,7,5,9] },
+  { text:'体力限界復帰展開', strokes:[7,2,9,9,12,10,10,12] },
+  { text:'天才馬鹿御粗末様', strokes:[4,3,10,11,12,11,5,14] },
+  { text:'本日閉店休日限定', strokes:[5,4,11,8,6,4,9,8] },
+  { text:'定価三割特大特価', strokes:[8,8,3,12,10,3,10,8] },
+  { text:'焼肉定食青椒肉絲', strokes:[12,6,8,9,8,12,6,12] },
+  { text:'一期一会温故知新', strokes:[1,12,1,6,12,9,8,13] },
+  { text:'起死回生臥薪嘗胆', strokes:[10,6,6,5,9,16,14,9] },
+  { text:'有言実行因果応報', strokes:[6,7,8,6,6,8,7,12] },
+  { text:'電光石火順風満帆', strokes:[13,6,5,4,12,9,12,6] },
+  { text:'大器晩成一日千秋', strokes:[3,15,12,6,1,4,3,9] }
+];
+
+const BOSS_CHARS = new Set(BOSS_POOL.map(b=>b[0]));
+const PHRASE_CHARS = new Set(PHRASE_POOL.flatMap(p=>p.text.split('')));
+const REGULAR_POOL = KANJI_POOL.filter(k=>!BOSS_CHARS.has(k[0]) && !PHRASE_CHARS.has(k[0]) && k[1]<=12); // 通常ステージにはボス級の硬さ・ステージ3専用漢字を出さない
+const TIER_WEAK   = REGULAR_POOL.filter(k=>k[1]<=4);
+const TIER_MEDIUM = REGULAR_POOL.filter(k=>k[1]>4 && k[1]<=9);
+const TIER_STRONG = REGULAR_POOL.filter(k=>k[1]>9);
+const usedRegularChars = new Set();
+function pickFromTier(tier){
+  const pool = (tier && tier.length) ? tier : REGULAR_POOL;
+  let avail = pool.filter(k=>!usedRegularChars.has(k[0]));
+  if(avail.length===0){
+    // このプールでは使い切った。全体プールも枯渇していれば履歴をリセットして再び使えるようにする
+    if(usedRegularChars.size >= REGULAR_POOL.length){ usedRegularChars.clear(); }
+    avail = pool.filter(k=>!usedRegularChars.has(k[0]));
+    if(avail.length===0) avail = pool; // それでも空なら（プールが小さい等）そのまま許容
+  }
+  const pick = avail[Math.floor(Math.random()*avail.length)];
+  usedRegularChars.add(pick[0]);
+  return pick;
+}
 
 /* ---------- 漢数字変換 ---------- */
 const KSU=['','一','二','三','四','五','六','七','八','九'];
@@ -147,63 +187,72 @@ function durMs(lenIdx, tempo){
   return quarterMs * (lv/24);
 }
 
-function parseMMLPart(str){
-  let i=0, oct=3, defLen=5, tempOct=null;
+function parseMMLPart(str, state){
+  state = state || {oct:3, defLen:5};
+  let i=0, tempOct=null;
   const events=[];
   while(i<str.length){
     const c=str[i];
-    if(c==='O'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} oct=parseInt(d,10); continue; }
-    if(c==='>'){ oct++; i++; continue; }
-    if(c==='<'){ oct--; i++; continue; }
-    if(c==='L'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} if(d) defLen=parseInt(d,10); continue; }
+    if(c==='O'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} state.oct=parseInt(d,10); continue; }
+    if(c==='>'){ state.oct++; i++; continue; }
+    if(c==='<'){ state.oct--; i++; continue; }
+    if(c==='L'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} if(d) state.defLen=parseInt(d,10); continue; }
     if(c==='T'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} continue; }
-    if(c==='R'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):defLen; events.push({freq:0,len}); continue; }
-    if(c==='+'||c==='-'){ const sign=c; i++; if(tempOct===null) tempOct=oct; oct += (sign==='+'?1:-1); continue; }
-    if(c==='#'){ i++; const n=str[i]||''; i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):defLen;
-      events.push({freq:freqFor('#'+n,oct), len});
-      if(tempOct!==null){ oct=tempOct; tempOct=null; }
+    if(c==='R'){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):state.defLen; events.push({freq:0,len}); continue; }
+    if(c==='+'||c==='-'){ const sign=c; i++; if(tempOct===null) tempOct=state.oct; state.oct += (sign==='+'?1:-1); continue; }
+    if(c==='#'){ i++; const n=str[i]||''; i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):state.defLen;
+      events.push({freq:freqFor('#'+n,state.oct), len});
+      if(tempOct!==null){ state.oct=tempOct; tempOct=null; }
       continue; }
-    if(/[A-G]/.test(c)){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):defLen;
-      events.push({freq:freqFor(c,oct), len});
-      if(tempOct!==null){ oct=tempOct; tempOct=null; }
+    if(/[A-G]/.test(c)){ i++; let d=''; while(i<str.length&&/[0-9]/.test(str[i])){d+=str[i];i++;} const len=d?parseInt(d,10):state.defLen;
+      events.push({freq:freqFor(c,state.oct), len});
+      if(tempOct!==null){ state.oct=tempOct; tempOct=null; }
       continue; }
     i++;
   }
   return events;
 }
 
-function scheduleSong(actx, threeParts, tempo, loop, gainVal){
+function scheduleSong(actx, segments, tempo, loop, gainVal){
   gainVal = gainVal!==undefined?gainVal:0.13;
-  const partsEvents = threeParts.map(s=>parseMMLPart(s||''));
+  // segments: [[p1str,p2str,p3str], ...]。元のPLAY3仕様通り、各行（セグメント）ごとに
+  // 一番長いパートを基準に他パートは無音待機してから次の行へ進む（パート間のズレを防止）。
+  // オクターブ/デフォルト音長はパートごとにセグメントをまたいで引き継ぐ（原曲の記法に合わせるため）。
+  const partStates = [{oct:3,defLen:5},{oct:3,defLen:5},{oct:3,defLen:5}];
+  const segEvents = segments.map(seg => seg.map((s,k)=>parseMMLPart(s||'', partStates[k])));
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
   function playOnce(startTime){
-    let maxEnd = startTime;
-    partsEvents.forEach(events=>{
-      let t=startTime;
-      events.forEach(ev=>{
-        const d = durMs(ev.len, tempo)/1000;
-        if(ev.freq>0 && !stopped){
-          const osc=actx.createOscillator();
-          osc.type='square';
-          osc.frequency.value=ev.freq;
-          const g=actx.createGain();
-          g.gain.setValueAtTime(0.0001,t);
-          g.gain.linearRampToValueAtTime(1,t+0.01);
-          g.gain.setValueAtTime(1,Math.max(t+0.01,t+d*0.75));
-          g.gain.linearRampToValueAtTime(0.0001,t+d);
-          osc.connect(g); g.connect(master);
-          osc.start(t); osc.stop(t+d+0.02);
-        }
-        t += d;
+    let t = startTime;
+    segEvents.forEach(parts=>{
+      let segEnd = t;
+      parts.forEach(events=>{
+        let pt = t;
+        events.forEach(ev=>{
+          const d = durMs(ev.len, tempo)/1000;
+          if(ev.freq>0 && !stopped){
+            const osc=actx.createOscillator();
+            osc.type='square';
+            osc.frequency.value=ev.freq;
+            const g=actx.createGain();
+            g.gain.setValueAtTime(0.0001,pt);
+            g.gain.linearRampToValueAtTime(1,pt+0.01);
+            g.gain.setValueAtTime(1,Math.max(pt+0.01,pt+d*0.75));
+            g.gain.linearRampToValueAtTime(0.0001,pt+d);
+            osc.connect(g); g.connect(master);
+            osc.start(pt); osc.stop(pt+d+0.02);
+          }
+          pt += d;
+        });
+        segEnd = Math.max(segEnd, pt);
       });
-      maxEnd = Math.max(maxEnd,t);
+      t = segEnd; // 一番長いパートに揃えてから次の行へ（休符待機と同義）
     });
     if(loop && !stopped){
-      const waitMs = (maxEnd-actx.currentTime)*1000;
-      setTimeout(()=>{ if(!stopped) playOnce(maxEnd); }, Math.max(0,waitMs-60));
+      const waitMs = (t-actx.currentTime)*1000;
+      setTimeout(()=>{ if(!stopped) playOnce(t); }, Math.max(0,waitMs-60));
     }
-    return maxEnd;
+    return t;
   }
   playOnce(actx.currentTime+0.04);
   return { stop(){ stopped=true; try{master.disconnect();}catch(e){} } };
@@ -224,9 +273,9 @@ const V = {
   S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B7B3B1B1:R7R2R5R2C5C2R5R2R5R2D5D2R5R2R7R3R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R5R2R7R3R1R1"),
   S4: sp("O3G7G2F5F2E5E2D5D2C5C2O2B5B2B7B2B7B2B2B1:R7R2R5R2O2A5A2R5R2R5R2#G5#G2R5R2R7R2R7R2R2R1:R7R2R5R2O2F5F2R5R2R5R2E5E5R5R2R7R2R7R2R2R1")
 };
-function buildVezarParts(){
-  const parts=[[],[],[]];
-  const push=(a)=>{ for(let k=0;k<3;k++) parts[k].push(a[k]); };
+function buildVezarSegments(){
+  const seg=[]; // 各要素は [p1str,p2str,p3str]（原曲のPLAY文1行分）
+  const push=(a)=>{ seg.push([a[0],a[1],a[2]]); };
   for(let i=0;i<28;i++) push(V.P1);
   for(let i=0;i<2;i++) push(V.P2);
   for(let i=0;i<2;i++) push(V.P3);
@@ -242,21 +291,25 @@ function buildVezarParts(){
     push(V.R1);
     push(V.S1); push(V.S2); push(V.S1); push(V.S4);
   }
-  return [parts[0].join(''), parts[1].join(''), parts[2].join('')];
+  return seg;
 }
-const VEZAR_PARTS = buildVezarParts();
+const VEZAR_SEGMENTS = buildVezarSegments();
 const VEZAR_TEMPO = 30;
 
-const DASH_P1 = "O2L3" + "O2+C1R5R1+C1#A1R5R3#A1A7" + "A4#A3B3";
-const DASH_P2 = "R5L1" + "O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C" + "C1C1C1-D1-D1F1F1";
-const DASH_PARTS = [DASH_P1, DASH_P2, ""];
+// Dash!/プロムナードは行の区切りが単純なので、行ごとにセグメント化（同期仕様を統一で適用するため）
+const DASH_SEGMENTS = [
+  [ "O2L3", "R5L1", "" ],
+  [ "O2+C1R5R1+C1#A1R5R3#A1A7", "O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C", "" ],
+  [ "A4#A3B3", "C1C1C1-D1-D1F1F1", "" ]
+];
 const DASH_TEMPO = 180;
 
-const PROM_P1 = "O3" + "D5C5F5G3>C3<A5G3>C3<A5" + "F5G5D5C5";
-const PROM_P2 = "O2" + "F9D9C9" + "A9";
-const PROM_P3 = "O1" + "D9C9E9" + "C9";
-const PROM_PARTS = [PROM_P1, PROM_P2, PROM_P3];
+const PROM_SEGMENTS = [
+  [ "O3D5C5F5G3>C3<A5G3>C3<A5", "O2F9D9C9", "O1D9C9E9" ],
+  [ "F5G5D5C5", "A9", "C9" ]
+];
 const PROM_TEMPO = 120;
+
 
 let actx=null;
 let currentSong=null;
@@ -279,9 +332,9 @@ function ensureAudio(){
   }
 }
 function stopSong(){ if(currentSong){ currentSong.stop(); currentSong=null; } }
-function playDash(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, DASH_PARTS, DASH_TEMPO, false, 0.12); }
-function playPromenade(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, PROM_PARTS, PROM_TEMPO, false, 0.12); }
-function playVezarLoop(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, VEZAR_PARTS, VEZAR_TEMPO, true, 0.11); }
+function playDash(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
+function playPromenade(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
+function playVezarLoop(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11); }
 
 function noiseBurst(dur, f0, f1, gain){
   if(!actx) return;
@@ -332,7 +385,7 @@ function pointerDown(cx,cy){
   input.lastTapTime=now;
   if(input.tapCount>=dodgeRequiredTaps()){ input.dodgeRequested=true; input.tapCount=0; }
   if(state==='title') startGame();
-  else if(state==='result') state='title';
+  else if(state==='result'){ stopSong(); state='title'; }
 }
 function pointerMove(cx,cy){ if(!input.active) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ input.active=false; }
@@ -349,6 +402,7 @@ const GAME_DURATION=180000;
 let stageIndex=0;
 let stageWave=0;
 let approachActive=false, approachTimer=0, approachSpawnTimer=0, approachSpawnedCount=0, approachQuota=6;
+let stageGraceActive=false, stageGraceTimer=0, graceWaitingForAssembly=false;
 let bossSpawnedFor=[false,false,false];
 let bossActive=null;
 let bossClearTimer=0;
@@ -378,7 +432,7 @@ let formation = { anchorX: 12, anchorY: 2, dir: 1, stepDown: 0.9 };
 let stageStartElapsed = 0;
 
 function makeEnemyBase(slotX, slotY, tier){
-  const pick = tier ? pickFromTier(tier) : KANJI_POOL[Math.floor(Math.random()*KANJI_POOL.length)];
+  const pick = pickFromTier(tier); // tier未指定時はpickFromTier内部でREGULAR_POOL全体から選ぶ
   const strokes = pick[1];
   const hp = Math.max(1, Math.ceil(strokes/2));
   return { ch:pick[0], strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
@@ -393,12 +447,6 @@ function makeEnemyFixed(ch, strokes, slotX, slotY){
            pattern:'march', diveT:0, diveState:'hover', diveDelay:1500+Math.random()*2500, loopT:0,
            uniformSize:true };
 }
-
-// ステージ3（ギャラガ）：意味のある8文字フレーズ編隊。必須フレーズを含む
-const PHRASE_POOL = [
-  { text:'某子玉将天津炒飯', strokes:[9,3,5,10,4,9,8,12] },
-  { text:'冷麺開始満員御礼', strokes:[7,16,12,8,12,10,12,5] }
-];
 
 function spawnStage0Wave(){
   // 第一形態：階層編隊（下段=弱、中段=中、上段=強）、横移動→降下
@@ -456,7 +504,22 @@ function setupFormationForStage(){
     }
   } else if(stageIndex===2){
     // 第三形態：画面外の左右からcos/sinで8文字編隊が飛来し、意味の分かる並びを組む
+    // ＋周辺にステージ1と同等の数まで通常の護衛敵を配置（フレーズの可読性は保つ）
     spawnStage3PhraseFormation();
+    const fillerNeeded = 30 - enemies.length;
+    for(let i=0;i<fillerNeeded;i++){
+      const col = i%10, row = 2 + Math.floor(i/10);
+      const e = makeEnemyBase((col-4.5)*1.15, row*1.1, TIER_WEAK);
+      e.pattern='peel';
+      e.x = formation.anchorX + e.slotX; e.y = -1 - row;
+      enemies.push(e);
+    }
+  }
+  // ステージ開始からの攻撃猶予（第三形態は編隊の整列完了後に開始）
+  if(stageIndex===2){
+    stageGraceActive = false; graceWaitingForAssembly = true;
+  } else {
+    stageGraceActive = true; stageGraceTimer = 2000; graceWaitingForAssembly = false;
   }
 }
 
@@ -529,10 +592,19 @@ function updateFormationEnemy(e, dt){
 
 function updateFormationAnchor(dt){
   if(stageIndex===0){
+    const marchers = enemies.filter(e=>e.pattern==='march');
+    let leftBound = cols/2-4, rightBound = cols/2+4;
+    if(marchers.length>0){
+      const minSlotX = Math.min(...marchers.map(e=>e.slotX));
+      const maxSlotX = Math.max(...marchers.map(e=>e.slotX));
+      leftBound = Math.max(1 - minSlotX, 1);
+      rightBound = Math.min(cols-1 - maxSlotX, cols-1);
+      if(leftBound>rightBound){ const m=(leftBound+rightBound)/2; leftBound=m; rightBound=m; }
+    }
     formation.anchorX += formation.dir * dt/1000*2.2;
-    if(formation.anchorX > cols/2+4 || formation.anchorX < cols/2-4){
+    if(formation.anchorX > rightBound || formation.anchorX < leftBound){
       formation.dir *= -1;
-      formation.anchorX = Math.max(cols/2-4, Math.min(cols/2+4, formation.anchorX));
+      formation.anchorX = Math.max(leftBound, Math.min(rightBound, formation.anchorX));
       // 降下しきったら、そこから先は同じ高さで横移動のみ継続する（強制ゲームオーバーにはしない）
       const MAX_FORMATION_ANCHOR_Y = rows - 8;
       formation.anchorY = Math.min(formation.anchorY + formation.stepDown, MAX_FORMATION_ANCHOR_Y);
@@ -566,14 +638,27 @@ function actuallySpawnBoss(){
 }
 
 function spawnEscortFormation(){
-  // ボス戦には随伴する敵編隊がつく（ボス単体ではなく護衛編隊込み）
-  const colsN = 8, spacing = 1.1;
-  const pat = stageIndex===0 ? 'march' : 'peel';
-  for(let c=0;c<colsN;c++){
-    const e = makeEnemyBase((c-(colsN-1)/2)*spacing, -1, TIER_WEAK);
-    e.pattern = pat;
-    e.x = formation.anchorX + e.slotX; e.y = -1;
-    enemies.push(e);
+  // ボス戦には随伴する護衛編隊がつく。各ステージの通常編隊と同じパターン・規模感（旧仕様の約3倍）
+  if(stageIndex===0){
+    const colsN=8, spacing=1.25;
+    const rowsDef=[{row:0,tier:TIER_MEDIUM},{row:1,tier:TIER_WEAK},{row:2,tier:TIER_WEAK}];
+    rowsDef.forEach(rd=>{
+      for(let c=0;c<colsN;c++){
+        const e = makeEnemyBase((c-(colsN-1)/2)*spacing, -1-rd.row*1.0, rd.tier);
+        e.pattern='march';
+        e.x = formation.anchorX + e.slotX; e.y = e.slotY;
+        enemies.push(e);
+      }
+    });
+  } else {
+    const colsN=8, rowsN=3, spacing=1.15;
+    for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
+      const tier = r===0?TIER_MEDIUM:TIER_WEAK;
+      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, -1-r*1.1, tier);
+      e.pattern='peel';
+      e.x = formation.anchorX + e.slotX; e.y = e.slotY;
+      enemies.push(e);
+    }
   }
 }
 
@@ -594,7 +679,8 @@ function damageEnemy(e, isBoss){
   if(e.hp<=0){
     const base = isBoss ? 6000 : (e.strokes*20);
     combo++; comboMax=Math.max(comboMax,combo);
-    const gained = Math.floor(base*(1+combo*0.12));
+    const multiplier = combo<=32 ? (1+combo*0.12) : (1+32*0.12) * Math.pow(1.15, combo-32);
+    const gained = Math.floor(base*multiplier);
     score = Math.min(10000000, score+gained);
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
     addPopup(e.x,e.y,'連撃'+kanjiNum(combo),'#ffee33');
@@ -641,7 +727,7 @@ function startApproachPhase(){
     approachQuota = 8;
     approachSpawnedCount = 8;
   } else {
-    approachQuota = 6;
+    approachQuota = 30;
   }
 }
 
@@ -652,6 +738,7 @@ function resetGame(){
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
   input.dodgeRequested=false; dodgeUseCount=0; dodgeRecoverTimer=0;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
+  stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false;
   startApproachPhase();
 }
 function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
@@ -680,15 +767,25 @@ function updateLogic(dt){
       approachSpawnTimer -= dt;
       if(approachSpawnTimer<=0 && approachSpawnedCount<approachQuota){
         spawnApproachEnemy();
-        approachSpawnTimer = 900+Math.random()*700;
+        approachSpawnTimer = 220+Math.random()*180;
       }
     }
     const clearedEarly = enemies.length===0 && approachSpawnedCount>=approachQuota;
     if(clearedEarly || approachTimer<=0){
       approachActive = false;
+      if(enemies.length>0){ enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff')); } // ボス出現時と同様に一掃
       enemies = [];
       setupFormationForStage(); // 本編編隊を開始
     }
+  }
+
+  if(graceWaitingForAssembly){
+    const allArrived = enemies.length>0 && enemies.every(e=>e.pattern!=='incoming');
+    if(allArrived){ graceWaitingForAssembly=false; stageGraceActive=true; stageGraceTimer=2000; }
+  }
+  if(stageGraceActive){
+    stageGraceTimer -= dt;
+    if(stageGraceTimer<=0) stageGraceActive=false;
   }
 
   const BOSS_SAFETY_TIMEOUT = 50000; // 万一編隊を倒しきれない場合の保険（編隊クリアが基本トリガー）
@@ -742,7 +839,7 @@ function updateLogic(dt){
     const e=enemies[i];
     if(e.hitFlash>0) e.hitFlash-=dt;
     e.fireTimer -= dt;
-    if(e.fireTimer<=0 && e.y>0 && e.y<rows-1){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
+    if(e.fireTimer<=0 && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
     if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
     if(e.pattern==='approach' && e.y>rows+2){ enemies.splice(i,1); }
   }
@@ -754,7 +851,7 @@ function updateLogic(dt){
     b.x = Math.max(2,Math.min(cols-2,b.x));
     if(b.y>rows*0.28) b.vy=0;
     b.fireTimer -= dt;
-    if(b.fireTimer<=0){ fireEnemyBullet(b,3); b.fireTimer=850; }
+    if(b.fireTimer<=0 && !stageGraceActive){ fireEnemyBullet(b,3); b.fireTimer=850; }
     if(b.hitFlash>0) b.hitFlash-=dt;
   }
 
@@ -849,8 +946,6 @@ function drawGame(){
   ctx.fillStyle='#3bff88'; ctx.font=`bold ${cell*1.1}px monospace`;
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText('自', gx(player.x), gy(player.y));
-  ctx.fillStyle='#eaffea'; ctx.font=`${cell*0.6}px monospace`;
-  ctx.fillText('｜', gx(player.x), gy(player.y-0.75));
   ctx.restore();
 
   enemies.forEach(e=>{
@@ -900,7 +995,7 @@ function drawGame(){
   ctx.fillStyle='#33e0ff'; ctx.fillText('連撃 '+kanjiNum(combo), 10, 8+cell*0.9);
   if(approachActive){
     ctx.textAlign='center'; ctx.fillStyle='#8affc8'; ctx.font=`${cell*0.6}px monospace`;
-    ctx.fillText('冒険パート　残り'+Math.max(0,Math.ceil(approachTimer/1000))+'秒', W/2, 8);
+    ctx.fillText('冒険篇　残り'+Math.max(0,Math.ceil(approachTimer/1000))+'秒', W/2, 8);
     ctx.textAlign='left';
   }
 
@@ -914,7 +1009,7 @@ function drawGame(){
   ctx.fillText(hpStr, 10, H-cell*1.1);
 
   ctx.textAlign='right'; ctx.fillStyle='#99e6ff'; ctx.font=`${cell*0.55}px monospace`;
-  ctx.fillText('緊急避難：'+dodgeRequiredTaps()+'回タップ', W-10, H-cell*1.1);
+  ctx.fillText('緊急避難：連続接触'+dodgeRequiredTaps()+'回', W-10, H-cell*1.1);
   ctx.restore();
 }
 
@@ -924,7 +1019,7 @@ function drawResult(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillStyle = resultReason==='gameover' ? '#ff5555' : (resultReason==='clear' ? '#ffe14d' : '#ffdd55');
   ctx.font=`bold ${cell*1.6}px monospace`;
-  const title = resultReason==='gameover' ? 'GAME OVER' : (resultReason==='clear' ? 'GAME CLEAR' : 'ENDING');
+  const title = resultReason==='gameover' ? '全滅' : (resultReason==='clear' ? '制覇' : '時間切れ');
   ctx.fillText(title, W/2, H*0.32);
   ctx.fillStyle='#fff'; ctx.font=`${cell*1}px monospace`;
   ctx.fillText('得点　'+kanjiNum(score), W/2, H*0.44);
@@ -933,10 +1028,10 @@ function drawResult(){
   if(resultReason==='clear'){
     const cs = (clearTimeMs/1000).toFixed(1);
     ctx.fillStyle='#7fffb0';
-    ctx.fillText('クリアタイム　'+cs+'秒', W/2, H*0.62);
+    ctx.fillText('制覇時間　'+cs+'秒', W/2, H*0.62);
   }
   ctx.font=`${cell*0.7}px monospace`; ctx.fillStyle='#88ff88';
-  ctx.fillText('タップしてタイトルへ', W/2, H*0.73);
+  ctx.fillText('接触で題名へ戻る', W/2, H*0.73);
   ctx.restore();
 }
 
