@@ -222,8 +222,9 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
   const segEvents = segments.map(seg => seg.map((s,k)=>parseMMLPart(s||'', partStates[k])));
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
-  function playOnce(startTime){
-    if(stopped) return;
+
+  // 1周分をスケジュールし、終了時刻を返す（実際の発音予約はここでしか行わない）
+  function scheduleOneIteration(startTime){
     let t = startTime;
     segEvents.forEach(parts=>{
       let segEnd = t;
@@ -249,19 +250,36 @@ function scheduleSong(actx, segments, tempo, loop, gainVal){
       });
       t = segEnd; // 一番長いパートに揃えてから次の行へ（休符待機と同義）
     });
-    const nextStart = t;
-    if(loop && !stopped){
-      // 次ループの開始を実時間ギリギリで予約（早すぎても遅すぎてもズレの元になるため）
-      const now = actx.currentTime;
-      const wait = Math.max(0.01, nextStart - now - 0.08);
-      setTimeout(()=>{ if(!stopped) playOnce(nextStart); }, wait*1000);
-    }
     return t;
   }
-  playOnce(actx.currentTime+0.05);
+
+  // 先読みバッファ方式：常に一定秒数分は予約済みにしておくことで、
+  // JSスレッドの一時停止（GC・描画・省電力など）があっても無音が生じないようにする。
+  // setTimeoutの発火タイミング精度そのものには依存しない設計。
+  const BUFFER_AHEAD_SEC = 20;
+  let scheduledUntil = actx.currentTime + 0.05;
+  let watchdog = null;
+  function fillBuffer(){
+    if(stopped) return;
+    let guard = 0;
+    while(scheduledUntil < actx.currentTime + BUFFER_AHEAD_SEC && guard < 50){
+      scheduledUntil = scheduleOneIteration(scheduledUntil);
+      guard++;
+      if(!loop) break; // ループしない曲は1周だけスケジュールして終わり
+    }
+  }
+
+  fillBuffer();
+  if(loop){
+    watchdog = setInterval(()=>{
+      if(stopped){ clearInterval(watchdog); return; }
+      fillBuffer();
+    }, 3000);
+  }
   return {
     stop(){
       stopped=true;
+      if(watchdog) clearInterval(watchdog);
       try{ master.disconnect(); }catch(e){}
     }
   };
@@ -951,6 +969,8 @@ function drawTitle(){
   ctx.fillText('タップしてスタート', W/2, H*0.55);
   ctx.fillStyle='#3bb0ff'; ctx.font=`${cell*0.6}px monospace`;
   ctx.fillText('― 3分間タイムアタック ―', W/2, H*0.62);
+  ctx.fillStyle='#888'; ctx.font=`${cell*0.45}px monospace`;
+  ctx.fillText('© 2026 ZANTEI TECHNOLOGY', W/2, H*0.92);
   ctx.restore();
 }
 
