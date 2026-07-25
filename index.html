@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv68</title>
+<title>漢字超戦 kcv70</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv68';
+const KCV_VERSION = 'kcv70';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -1336,7 +1336,7 @@ function updateFormationAnchor(dt){
       }
     }
     // インベーダー仕様：残数が減るほど加速する（撃破ごとに線形加速し、残り1体で最速＝初速の8倍。要望対応で体感できるレベルに強化）
-    const STAGE1_MAX_SPEED_MUL = 16; // 要望対応：2倍だと体感で遅かったため、元の8倍からさらに2倍の16倍に変更
+    const STAGE1_MAX_SPEED_MUL = 32; // 要望対応：さらに2倍に強化（16倍→32倍）
     const totalForRamp = Math.max(1, stage0WaveInitialCount - 1);
     const kills = stage0WaveInitialCount - marchers.length;
     const speedMul = 1 + (STAGE1_MAX_SPEED_MUL - 1) * Math.min(1, kills / totalForRamp);
@@ -1498,27 +1498,34 @@ function addBigExplosionParticles(x,y,n,color){ addParticles(x,y,n,color,28,3); 
 let celebrationSprites = [];
 let clearCelebrationTimer = 0;
 let clearWave2Spawned = false;
-// 要望対応：クリア演出。各列が独自のsin波で蛇行しながら上昇。列は崩さない。
-// 演出8秒 + 余韻2秒（clearAfterGlow状態）→ リザルト
-const CLEAR_CELEBRATION_MS = 8000;
-const CLEAR_WAVE2_DELAY_MS = 2000;
-const CEL_RISE_SPEED = (rows + 4) / 5.0; // 上昇速度（約5秒で画面を抜ける）
+// 要望対応：クリア演出。各列が「くねった曲線の隊列」で画面下から上昇。
+// 各体のX位置はrow（縦位置）に応じてsin波でずれており、列全体が蛇のように曲線を描く。
+// 演出は全員が画面上端を抜けてから2秒の余韻（clearAfterGlow）→リザルト。
+// 1波目が全員画面外へ出るのに約6.2秒かかるため、2波目は6.5秒後にスポーン
+// 全体：6.5秒（2波目スポーン）+ 6.2秒（2波目上昇）= 約12.7秒 → 13秒を上限に
+const CLEAR_CELEBRATION_MS = 13000;
+const CLEAR_WAVE2_DELAY_MS = 6500;
+const CEL_RISE_SPEED = (rows + 6) / 5.0; // 全員が画面外へ抜けるのに約5秒
+
 function spawnClearCelebrationWave(startIndex){
   const spacingX = cols / 8;
   for(let col = 0; col < 8; col++){
     const baseX = spacingX * (col + 0.5);
-    // 列ごとに異なる蛇行パラメータ（位相・振幅・周波数）を持たせる
-    // 振幅は列間隔の半分以下に抑えて重ならないように
-    const phase  = (col / 8) * Math.PI * 2;          // 列ごとに位相をずらす
-    const amp    = 0.35 + (col % 3) * 0.12;           // 0.35～0.59（列間隔3.0の1/5以下）
-    const freq   = 0.0018 + (col % 4) * 0.0003;       // 列ごとに少し異なる周期
+    // 列ごとに曲線の位相・振幅・周波数を変える
+    // 列間隔 = cols/8 = 3.0。振幅の最大は1.0（隣列との間隔3.0の1/3）で重ならない
+    const colPhase = (col / 8) * Math.PI * 2;
+    const amp      = 0.7 + (col % 3) * 0.2;     // 0.7〜1.1（広い横幅、列間隔の1/3以下）
+    const snakeFreq = 0.55 + (col % 4) * 0.08;  // 1列内のsin波の繰り返し数（波長）
     for(let row = 0; row < 8; row++){
       const kanji = KANJI_POOL[(startIndex + col * 8 + row) % KANJI_POOL.length];
-      // 下から順に並ぶ（row=0が最下）。行間は1.1セルで整列
       const startY = rows + 2 + row * 1.1;
+      // 各体のX：rowに応じてsin波でずれる → 列全体が最初から曲線状に配置される
+      const snakeX = baseX + Math.sin(row * snakeFreq + colPhase) * amp;
       celebrationSprites.push({
-        ch: kanji[0], baseX, phase, amp, freq, startY,
+        ch: kanji[0], baseX, snakeFreq, colPhase, amp,
         y: startY,
+        x: snakeX,   // 現在位置（更新時にrowから再計算する）
+        row,         // 行インデックス（x再計算に使用）
         color: ROW_COLOR_PALETTE[(col + row) % ROW_COLOR_PALETTE.length],
         t: 0
       });
@@ -2223,16 +2230,18 @@ function updateLogic(dt){
       spawnClearCelebrationWave(64);
       clearWave2Spawned = true;
     }
-    // 各スプライトが列を守りながら蛇行して上昇
+    // 各スプライトが列全体を曲線に保ちながら上昇
     celebrationSprites.forEach(s=>{
       s.t += dt;
       s.y -= CEL_RISE_SPEED * dt / 1000;
-      // x方向の蛇行：列のbaseXを中心にsin波で左右に揺れる（列間隔を超えない振幅）
-      s.x = s.baseX + Math.sin(s.t * s.freq * 2 * Math.PI + s.phase) * s.amp;
+      // rowと時間の両方でsin波を作ることで、列が蛇のようにくねりながら上昇する
+      s.x = s.baseX + Math.sin(s.row * s.snakeFreq + s.colPhase + s.t * 0.0008) * s.amp;
     });
     updateEffects(dt);
     updateStars(dt);
-    if(clearCelebrationTimer >= CLEAR_CELEBRATION_MS){
+    // 全員が画面上端より上に出たら余韻へ（CLEAR_CELEBRATION_MSは保険の上限）
+    const allGone = celebrationSprites.length > 0 && celebrationSprites.every(s => s.y < -1);
+    if(allGone || clearCelebrationTimer >= CLEAR_CELEBRATION_MS){
       state = 'clearAfterGlow';
       clearCelebrationTimer = 0;
     }
@@ -2564,11 +2573,7 @@ function drawClearCelebration(){
   drawParticleLayer();
 }
 function drawClearAfterGlow(){
-  // 余韻：最後の状態をそのまま表示
-  celebrationSprites.forEach(s=>{
-    const whiteness = Math.max(0, Math.min(1, 1 - (s.y + 2) / (rows + 4)));
-    drawText(s.ch, gx(s.x), gy(s.y), { size: cell*0.9, color: lerpColorToWhite(s.color, whiteness) });
-  });
+  // 余韻：全員消えた後の星空のみ（パーティクルが残っていれば描く）
   drawParticleLayer();
 }
 
