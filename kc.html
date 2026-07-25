@@ -343,14 +343,15 @@ function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
         else break;
         if(acc + ev.ms > wholeNoteMs + 0.01){
           // 小節をまたぐ長い音符は分割し、残りは次の小節へ引き継ぐ（タイ）。
-          // 残りがさらに1小節を超える場合は、次の小節でこのif文に再度入り重ねて分割される
+          // 残りがさらに1小節を超える場合は、次の小節でこのif文に再度入り重ねて分割される。
+          // tieIn/tieOutで連鎖関係を記録し、後段でオシレーターを1本にまとめる（音の継ぎ目対策）
           const firstPart = wholeNoteMs - acc;
           const secondPart = ev.ms - firstPart;
-          bar[k].push({freq:ev.freq, ms:firstPart});
-          remainders[k] = {freq:ev.freq, ms:secondPart};
+          bar[k].push({freq:ev.freq, ms:firstPart, tieIn:!!ev.tieIn, tieOut:true});
+          remainders[k] = {freq:ev.freq, ms:secondPart, tieIn:true};
           acc = wholeNoteMs;
         } else {
-          bar[k].push(ev);
+          bar[k].push({freq:ev.freq, ms:ev.ms, tieIn:!!ev.tieIn});
           acc += ev.ms;
         }
       }
@@ -360,6 +361,26 @@ function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
     else break;
   }
   const segEvents = bars;
+
+  // 要望対応：小節をまたいで伸びる音符（タイ）は、これまで小節ごとに別々のオシレーターで
+  // 再アタックしていたため境目に継ぎ目が聞こえていた。tieIn/tieOutの連鎖をたどって、
+  // 連鎖の先頭イベントにだけ全体の長さ(audioMs)を持たせ、続き部分はオシレーターを作らない
+  // (skipAudio)ようにすることで、1本の音として滑らかにつながるようにする
+  for(let k=0;k<3;k++){
+    let chainStart = null;
+    for(let i=0;i<bars.length;i++){
+      for(const ev of bars[i][k]){
+        if(!ev.tieIn){
+          if(ev.tieOut){ ev.audioMs = ev.ms; chainStart = ev; }
+          else { chainStart = null; }
+        } else {
+          ev.skipAudio = true;
+          if(chainStart) chainStart.audioMs += ev.ms;
+          if(!ev.tieOut) chainStart = null;
+        }
+      }
+    }
+  }
 
   const master = actx.createGain(); master.gain.value=gainVal; master.connect(actx.destination);
   let stopped=false;
@@ -371,17 +392,19 @@ function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
       let pt = startTime;
       events.forEach(ev=>{
         const d = ev.ms/1000;
-        if(ev.freq>0){
+        if(ev.freq>0 && !ev.skipAudio){
+          // タイでつながる音符は、連鎖全体の長さ(audioMs)を使って1本のオシレーターで鳴らす
+          const soundDur = (ev.audioMs!==undefined ? ev.audioMs : ev.ms)/1000;
           const osc=actx.createOscillator();
           osc.type='square';
           osc.frequency.value=ev.freq;
           const g=actx.createGain();
           g.gain.setValueAtTime(0.0001,pt);
           g.gain.linearRampToValueAtTime(1,pt+0.01);
-          g.gain.setValueAtTime(1,Math.max(pt+0.01,pt+d*0.75));
-          g.gain.linearRampToValueAtTime(0.0001,pt+d);
+          g.gain.setValueAtTime(1,Math.max(pt+0.01,pt+soundDur*0.75));
+          g.gain.linearRampToValueAtTime(0.0001,pt+soundDur);
           osc.connect(g); g.connect(master);
-          osc.start(pt); osc.stop(pt+d+0.02);
+          osc.start(pt); osc.stop(pt+soundDur+0.02);
         }
         pt += d;
       });
