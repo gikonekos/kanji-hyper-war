@@ -333,25 +333,25 @@ function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
     const bar = [[],[],[]];
     for(let k=0;k<3;k++){
       let acc = 0;
-      if(remainders[k]){
-        bar[k].push(remainders[k]);
-        acc += remainders[k].ms;
-        remainders[k] = null;
-      }
-      while(cursors[k] < streams[k].length && acc < wholeNoteMs - 0.01){
-        const ev = streams[k][cursors[k]];
+      // 残り物(remainder)も、新規に取り出すイベントとまったく同じ分割ロジックを通す。
+      // タイ処理で1小節を超える長さの音符が生まれると、その残りがさらに1小節を超えることもあるため、
+      // remainderを無条件で丸ごと詰め込むと、他パートが次の小節開始まで無音で待たされる不具合があった
+      while(acc < wholeNoteMs - 0.01){
+        let ev;
+        if(remainders[k]){ ev = remainders[k]; remainders[k] = null; }
+        else if(cursors[k] < streams[k].length){ ev = streams[k][cursors[k]]; cursors[k]++; }
+        else break;
         if(acc + ev.ms > wholeNoteMs + 0.01){
-          // 小節をまたぐ長い音符は分割し、残りは次の小節へ引き継ぐ（タイ）
+          // 小節をまたぐ長い音符は分割し、残りは次の小節へ引き継ぐ（タイ）。
+          // 残りがさらに1小節を超える場合は、次の小節でこのif文に再度入り重ねて分割される
           const firstPart = wholeNoteMs - acc;
           const secondPart = ev.ms - firstPart;
           bar[k].push({freq:ev.freq, ms:firstPart});
           remainders[k] = {freq:ev.freq, ms:secondPart};
           acc = wholeNoteMs;
-          cursors[k]++;
         } else {
           bar[k].push(ev);
           acc += ev.ms;
-          cursors[k]++;
         }
       }
       if(cursors[k] < streams[k].length || remainders[k]) more = true;
@@ -557,7 +557,7 @@ function recomputeKeyDir(){
 // 置き続けることで移動させる（毎フレーム呼び出す）
 // ↓↓↓ 要望対応：後々の調整用に、キーボード移動の速度・先読み距離をここにまとめておく ↓↓↓
 const KEY_MOVE_LOOKAHEAD = 1; // 目標点を自機の何マス先に置くか（大きいほど、離した瞬間のオーバーシュートが大きくなる）
-const KEY_MOVE_SPEED_CELLS_PER_30FPS = 1.0; // キーボード移動の最高速度（タッチ/マウスは別途2.0で固定）
+const KEY_MOVE_SPEED_CELLS_PER_30FPS = 0.5; // キーボード移動の最高速度（タッチ/マウスは別途2.0で固定）
 // ↑↑↑ ここまで ↑↑↑
 function updateKeyboardMovement(){
   if(!keyHeld || pointerHeld) return; // マウス/タッチ操作中はそちらを優先
@@ -608,7 +608,7 @@ function pointerDown(cx,cy){
     // アトラクトループ中は、どの画面でもタップした瞬間に中断し、操作可能な本物の題名へ戻す
     attractMode = false; demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0;
     hideAttractRanking();
-    state = 'title';
+    enterTitle();
     return; // このタップ自体はゲーム開始などには使わない
   }
   pointerHeld=true; input.active=true; input.downTime=performance.now();
@@ -630,19 +630,24 @@ function pointerDown(cx,cy){
       if(invincibleTapCount>=INVINCIBLE_TAP_REQUIRED){ invincibleMode = true; invincibleTapCount = 0; }
       return; // ゲーム開始はしない
     }
-    // モード選択ボタン（3分間タイムアタック／時間無制限）
-    if(cy > H*0.585 && cy < H*0.665){
-      if(cx > W*0.06 && cx < W*0.48){ gameMode='timeattack'; startGame(); return; }
-      if(cx > W*0.52 && cx < W*0.94){ gameMode='unlimited'; startGame(); return; }
+    // 要望対応：モード選択を「1回目タップで選択、2回目タップ（同じ場所でもどこでも）で開始」の2段階に。
+    // キーボード（左右で選択→他キーで開始）と挙動を揃える
+    if(!titleModeConfirmed){
+      if(cy > H*0.585 && cy < H*0.665){
+        if(cx > W*0.06 && cx < W*0.48){ gameMode='timeattack'; }
+        else if(cx > W*0.52 && cx < W*0.94){ gameMode='unlimited'; }
+      }
+      titleModeConfirmed = true; // モード領域外のタップでも、現在のモードのまま選択確定とする
+      return;
     }
     startGame();
   }
   else if(state==='result'){
     if(resultReason==='clear'){ startStaffRoll(); }
-    else { stopSong(); state='title'; }
+    else { stopSong(); enterTitle(); }
   }
   else if(state==='staffroll'){ if(!rankingFormActive && hasSeenStaffRoll()){ finishStaffRollFlow(); } }
-  else if(state==='opening'){ if(hasSeenOpening()){ state='title'; } }
+  else if(state==='opening'){ if(hasSeenOpening()){ enterTitle(); } }
 }
 function drawDemoGameOver(){
   ctx.save();
@@ -700,6 +705,8 @@ window.addEventListener('keydown', e=>{
 });
 
 let state='title';
+let titleModeConfirmed = false; // 要望対応：タッチのモード選択を「1回目タップで選択、2回目タップで開始」の2段階にするためのフラグ
+function enterTitle(){ state='title'; titleModeConfirmed=false; } // タイトルへ遷移する処理を一本化（毎回フラグをリセットするため）
 let elapsed=0;
 const GAME_DURATION=180000;
 let stageIndex=0;
@@ -1304,7 +1311,7 @@ async function refreshRankingList(){
 function hideRankingOverlay(){
   document.getElementById('rankOverlay').style.display = 'none';
   rankingFormActive = false;
-  stopSong(); state='title'; // 訂正：題名画面ではVEZARを流さず止める
+  stopSong(); enterTitle(); // 訂正：題名画面ではVEZARを流さず止める
 }
 
 // アトラクトループ中のランキング表示：既存のrankOverlay/rankListを流用（送信フォームは出さない）
@@ -1373,12 +1380,19 @@ let openingScrollMs = 16000;  // startOpeningで内容量に応じて動的に�
 let openingLineHeight = 0;
 let openingTotalHeight = 0;
 
+// 要望対応：オープニング／スタッフロールは同種のスクロール演出なので、初期化計算を共通化
+function computeScrollTiming(lines, lineUnitLines, speedMsPerCell){
+  const lineHeight = cell*0.9*lineUnitLines;
+  const totalHeight = lines.length*lineHeight;
+  const distance = H + totalHeight + cell*4;
+  const scrollMs = distance * speedMsPerCell / cell;
+  return {lineHeight, totalHeight, scrollMs};
+}
+
 function startOpening(){
   state='opening'; openingTimer = 0;
-  openingLineHeight = cell*0.9*OPENING_LINE_UNIT_LINES;
-  openingTotalHeight = OPENING_LINES.length*openingLineHeight;
-  const distance = H + openingTotalHeight + cell*4;
-  openingScrollMs = distance * OPENING_SPEED_MS_PER_CELL / cell;
+  const r = computeScrollTiming(OPENING_LINES, OPENING_LINE_UNIT_LINES, OPENING_SPEED_MS_PER_CELL);
+  openingLineHeight = r.lineHeight; openingTotalHeight = r.totalHeight; openingScrollMs = r.scrollMs;
 }
 
 // ============ エンディング・スタッフロール ============
@@ -1428,10 +1442,8 @@ let resultClearTimer = 0;
 let staffRollFinished = false;
 function startStaffRoll(){
   state='staffroll'; staffRollTimer = 0; staffRollFinished = false;
-  staffRollLineHeight = cell*0.9*STAFF_ROLL_LINE_UNIT_LINES;
-  staffRollTotalHeight = STAFF_ROLL_LINES.length*staffRollLineHeight;
-  const distance = H + staffRollTotalHeight + cell*4;
-  staffRollScrollMs = distance * STAFF_ROLL_SPEED_MS_PER_CELL / cell;
+  const r = computeScrollTiming(STAFF_ROLL_LINES, STAFF_ROLL_LINE_UNIT_LINES, STAFF_ROLL_SPEED_MS_PER_CELL);
+  staffRollLineHeight = r.lineHeight; staffRollTotalHeight = r.totalHeight; staffRollScrollMs = r.scrollMs;
 }
 // スタッフロール終了後の分岐：順序変更（クリア→スタッフロール→ランキング登録）に伴い、
 // ここで初めて自己ベスト判定＆ランキングフォーム表示を行う。
@@ -1442,7 +1454,7 @@ function finishStaffRollFlow(){
   if(resultReason==='clear' && score > getLocalBestScore()){
     showRankingForm();
   } else {
-    stopSong(); state='title'; // 訂正：題名画面ではVEZARを流さず止める
+    stopSong(); enterTitle(); // 訂正：題名画面ではVEZARを流さず止める
   }
 }
 
@@ -1709,7 +1721,7 @@ function updateStars(dt){
 function updateLogic(dt){
   if(state==='opening'){
     openingTimer += dt;
-    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ markSeenOpening(); state='title'; }
+    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ markSeenOpening(); enterTitle(); }
     return;
   }
   if(state==='warning'){
@@ -1749,7 +1761,7 @@ function updateLogic(dt){
   if(state==='demoover'){
     attractPhaseTimer += dt;
     if(attractPhaseTimer >= ATTRACT_DEMO_OVER_MS){
-      demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0; state = 'title';
+      demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0; enterTitle();
     }
     return;
   }
@@ -2049,54 +2061,44 @@ function drawGame(){
   ctx.restore();
 }
 
-function drawOpening(){
+// 要望対応：オープニング／スタッフロールは同種のスクロール演出のため描画処理を共通化
+function drawScrollCredits(cfg){
   ctx.save();
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const lineHeight = openingLineHeight;
-  const totalHeight = openingTotalHeight;
   const startY = H + cell*2;
-  const endY = -totalHeight - cell*2;
-  const t = Math.min(1, openingTimer/openingScrollMs);
+  const endY = -cfg.totalHeight - cell*2;
+  const t = Math.min(1, cfg.timer/cfg.scrollMs);
   const baseY = startY + (endY-startY)*t;
   ctx.font=`${cell*0.75}px monospace`;
-  OPENING_LINES.forEach((line,i)=>{
-    const y = baseY + i*lineHeight;
-    if(y > -lineHeight && y < H+lineHeight){
-      ctx.fillStyle = '#fff';
+  cfg.lines.forEach((line,i)=>{
+    const y = baseY + i*cfg.lineHeight;
+    if(y > -cfg.lineHeight && y < H+cfg.lineHeight){
+      ctx.fillStyle = cfg.colorFn ? cfg.colorFn(line) : '#fff';
       ctx.fillText(line, W/2, y);
     }
   });
-  if(hasSeenOpening()){
+  if(cfg.hintVisible){
     ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
-    ctx.fillText('タップで開始', W/2, H*0.95);
+    ctx.fillText(cfg.hintText, W/2, H*0.95);
   }
   ctx.restore();
 }
+function drawOpening(){
+  drawScrollCredits({
+    lines: OPENING_LINES, lineHeight: openingLineHeight, totalHeight: openingTotalHeight,
+    timer: openingTimer, scrollMs: openingScrollMs,
+    hintText: 'タップで開始', hintVisible: hasSeenOpening()
+  });
+}
 
 function drawStaffRoll(){
-  ctx.save();
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  const lineHeight = staffRollLineHeight;
-  const totalHeight = staffRollTotalHeight;
-  const startY = H + cell*2;
-  const endY = -totalHeight - cell*2;
-  const t = Math.min(1, staffRollTimer/staffRollScrollMs);
-  const baseY = startY + (endY-startY)*t;
-  ctx.font=`${cell*0.75}px monospace`;
-  STAFF_ROLL_LINES.forEach((line,i)=>{
-    const y = baseY + i*lineHeight;
-    if(y > -lineHeight && y < H+lineHeight){
-      ctx.fillStyle = line.startsWith('©') ? '#888' : '#fff';
-      ctx.fillText(line, W/2, y);
-    }
+  drawScrollCredits({
+    lines: STAFF_ROLL_LINES, lineHeight: staffRollLineHeight, totalHeight: staffRollTotalHeight,
+    timer: staffRollTimer, scrollMs: staffRollScrollMs,
+    hintText: 'タップで題名へ戻る', hintVisible: hasSeenStaffRoll(),
+    colorFn: line => line.startsWith('©') ? '#888' : '#fff'
   });
-  if(hasSeenStaffRoll()){
-    ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.5}px monospace`;
-    ctx.fillText('タップで題名へ戻る', W/2, H*0.95);
-  }
-  ctx.restore();
 }
 
 function drawResult(){
