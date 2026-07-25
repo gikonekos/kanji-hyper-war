@@ -472,6 +472,25 @@ motoikenkichi.com/kc/kcv28.html のURLが告知された（ランキング機能
 - ヘッドレステストで、新しいMML（一部トークン間に空白が含まれるものも含む）が
   想定通りパースされ、休符・音符の並びが崩れていないことを確認。構文チェックも実施済み
 
+## kcv59 【重大】フレームループ全体が停止する不具合を修正
+- 実機で`Uncaught SecurityError: Failed to execute 'getGamepads' on 'Navigator':
+  Access to the feature "gamepad" is disallowed by permissions policy.`という
+  エラーを確認。一部のホスティング環境ではPermissions-Policyによりgamepad機能への
+  アクセスがブロックされており、`navigator.getGamepads()`が同期的に例外を投げる
+- この呼び出しをtry/catchで保護せずに`frame()`の先頭（`pollGamepad()`内）で毎フレーム
+  呼んでいたため、例外が発生するたびに`requestAnimationFrame(frame)`まで到達できず、
+  **実質的にフレームループ全体が最初のフレームで停止していた**。これが、ジョイスティックが
+  動かないだけでなく、タッチ操作がマウスクリックでないと反応しない・キーボードの反応が
+  おかしいなど、報告されていた複数の不具合の共通の真因だった可能性が高い
+- 修正：`navigator.getGamepads()`呼び出しをtry/catchで保護し、SecurityError等が発生した
+  場合は`gamepadBlocked`フラグを立てて以後は呼び出さないようにした。あわせて`frame()`
+  全体をtry/finallyで囲み、想定外の例外が発生しても`requestAnimationFrame(frame)`は
+  必ず呼ばれるようにする堅牢性対応も追加（今後、環境依存で予期せず例外を投げるAPIが
+  出てきても、被害をそのフレームだけに限定できる）
+- ヘッドレステストで、`getGamepads()`が例外を投げ続ける環境を模してもフレームループが
+  停止しないこと、初回で`gamepadBlocked`が立って以後は再試行しないことを確認
+- あわせて`gamepadconnected`/`gamepaddisconnected`イベントのリスナーも保険的に追加（kcv58）
+
 ## 現時点（kcv53）で残っている既知の課題
 - VEZAR音切れ修正（v45）・新エンジン（kcv47/kcv52）の実機確認（改善したか
   どうか未確認）
