@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦</title>
+<title>漢字超戦 kcv68</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -69,8 +69,8 @@
     <div id="rankList" style="display:none;">
       <h3>ランキング　上位十位</h3>
       <ol id="rankListItems"></ol>
-      <div id="rankContinueHint">タップで続ける</div>
     </div>
+    <div id="rankContinueHint">タップで題名へ戻る</div>
   </div>
 </div>
 <script>
@@ -99,6 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const KCV_VERSION = 'kcv68';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -126,7 +127,39 @@ window.addEventListener('orientationchange', resize);
 function gx(u){ return (W-cols*cell)/2 + u*cell; }
 function gy(u){ return (H-rows*cell)/2 + u*cell; }
 
+/* ============================================================
+   描画ユーティリティ（構造化：同一の定型処理をここへ集約）
+   ============================================================ */
+// Canvasの文字描画は「save→整列・フォント・色を指定→fillText→restore」の定型が全体に散在していたため一本化する
+function drawText(text, x, y, o){
+  o = o || {};
+  ctx.save();
+  ctx.textAlign = o.align || 'center';
+  ctx.textBaseline = o.baseline || 'middle';
+  ctx.font = (o.bold ? 'bold ' : '') + (o.size != null ? o.size : cell) + 'px monospace';
+  ctx.fillStyle = o.color || '#fff';
+  if(o.alpha != null) ctx.globalAlpha = Math.max(0, o.alpha);
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+// 残り寿命に応じて薄くなる文字（パーティクル・ポップアップ）の描画。両者で同一処理だったため共通化
+function drawFadingChars(list, size, bold, textKey){
+  list.forEach(p=>{
+    drawText(p[textKey], gx(p.x), gy(p.y), { size: size, bold: bold, color: p.color, alpha: 1 - p.t/p.life });
+  });
+}
+function drawParticleLayer(){ drawFadingChars(particles, cell*0.6, false, 'ch'); }
+function drawPopupLayer(){ drawFadingChars(popups, cell*0.7, true, 'text'); }
+// 自機「自」の描画（通常時と、クリア演出中とで同一のため共通化）
+function drawPlayerChar(alpha){
+  drawText('自', gx(player.x), gy(player.y), { size: cell*1.1, bold: true, color: '#3bff88', alpha: alpha });
+}
+
 /* ---------- 漢字プール（画数付き・仮）／ボス候補 ---------- */
+
+/* ============================================================
+   漢字プール・出題管理（通常敵／ボス／ステージ3フレーズ）
+   ============================================================ */
 const KANJI_POOL = [
   ['一',1],['二',2],['三',3],['四',5],['五',4],['六',4],['七',2],['八',2],['九',2],['十',2],
   ['人',2],['大',3],['小',3],['山',3],['川',3],['田',5],['火',4],['水',4],['木',4],['金',8],
@@ -218,6 +251,10 @@ function kanjiNum(n){
 
 /* ============================================================
    PLAY3 MML再生エンジン
+   ============================================================ */
+
+/* ============================================================
+   音楽エンジン（PC-E500 PLAY3方式のMML解釈と再生）
    ============================================================ */
 const TONE_TABLE = {
   R:  [0,0,0,0,0],
@@ -455,9 +492,9 @@ const V = {
   P3: sp("O2G5R3G2R1G2R1:O2D5R3D2R1D2R1:O1B5R3B2R1B2R1"),
   Q1: sp("O3A7E9E9R5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   Q2: sp("O3B7G9G9D5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
-  Q3: sp("O3E7E9E7R3E5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
-  Q6: sp("O3B7G9G7R3G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
-  Q7: sp("O3A7A9A7R3A3R3:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
+  Q3: sp("O3E7E9E9E5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
+  Q6: sp("O3B7G9G9G5:O2G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1G5R3G2R1G2R1:O2D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1D5R3D2R1D2R1"),
+  Q7: sp("O3A7A9A9A5:O2A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1A5R3A2R1A2R1:O2E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1E5R3E2R1E2R1"),
   R1: sp("O3A5R2A5R2A5R2G9G2:O2A5R2A5R2A5R2G9G2:O2E5R2E5R2E5R2D9D2"),
   S1: sp("O3C5C2D5D2E5E2E5E2E5E2D5D5D3D1D1:R5R2R5R2O2E5E2R5R2R5R2D5D5R3R1R1:R5R2R5R2O2C5C2R5R2R5R2O1B5B5R3R1R1"),
   S2: sp("O3E7E2D5D2C5C2O2B5B2A5A2B5B2B5B5B3B1B1:R7R2R5R2C5C2R5R2R5R2D2D5R2R5R5R3R1R1:R7R2R5R2O1E5E2R5R2R5R2O1A5A2R2R5R5R3R1R1"),
@@ -522,10 +559,20 @@ function ensureAudio(){
   }
 }
 function stopSong(){ if(currentSong){ currentSong.stop(); currentSong=null; } }
-function playDash(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
-function playPromenade(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
-function playVezarLoop(){ if(!actx) return; stopSong(); currentSong = scheduleSong(actx, VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11, true); }
+// 3曲とも「AudioContextを確認→前の曲を止める→scheduleSong」で同一だったため一本化
+function playSong(segments, tempo, loop, gainVal, tieRepeats){
+  if(!actx) return;
+  stopSong();
+  currentSong = scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats);
+}
+function playDash(){ playSong(DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
+function playPromenade(){ playSong(PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
+function playVezarLoop(){ playSong(VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11, true); }
 
+
+/* ============================================================
+   効果音
+   ============================================================ */
 function noiseBurst(dur, f0, f1, gain){
   if(!actx) return;
   const n=Math.floor(actx.sampleRate*dur);
@@ -552,32 +599,38 @@ function beepTone(freq,dur,gain){
 }
 // 要望対応：ボス警告表示（2秒間）に合わせて鳴らす、ダライアス風の警告サイレン。
 // 音階が上がって(RISE_MS)、その1.5倍の時間で下がる(FALL_MS)を1周期とし、これを3回繰り返す。
-// 合計1800ms＝警告表示の2000msよりわずかに早く終わる
+// 合計1800ms＝警告表示の2000msよりわずかに早く終わる。
+// 要望対応：単音だと間抜けな印象だったため、1オクターブ低い声部を重ねて和音にした
 function playBossWarningSiren(){
   if(!actx) return;
   const RISE_MS = 240, FALL_MS = 360, CYCLES = 3;
   const LOW = 440, HIGH = 880;
-  const o=actx.createOscillator(), g=actx.createGain();
-  o.type='square';
   const t0 = actx.currentTime;
-  let t = t0;
-  o.frequency.setValueAtTime(LOW, t);
-  g.gain.setValueAtTime(0.16, t);
-  for(let i=0;i<CYCLES;i++){
-    o.frequency.linearRampToValueAtTime(HIGH, t + RISE_MS/1000);
-    t += RISE_MS/1000;
-    o.frequency.linearRampToValueAtTime(LOW, t + FALL_MS/1000);
-    t += FALL_MS/1000;
+  function voice(freqMul, gainVal){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type='square';
+    let t = t0;
+    o.frequency.setValueAtTime(LOW*freqMul, t);
+    g.gain.setValueAtTime(gainVal, t);
+    for(let i=0;i<CYCLES;i++){
+      o.frequency.linearRampToValueAtTime(HIGH*freqMul, t + RISE_MS/1000);
+      t += RISE_MS/1000;
+      o.frequency.linearRampToValueAtTime(LOW*freqMul, t + FALL_MS/1000);
+      t += FALL_MS/1000;
+    }
+    g.gain.setValueAtTime(gainVal, Math.max(t0, t-0.05));
+    g.gain.linearRampToValueAtTime(0.0001, t);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t0); o.stop(t+0.02);
   }
-  g.gain.setValueAtTime(0.16, Math.max(t0, t-0.05));
-  g.gain.linearRampToValueAtTime(0.0001, t);
-  o.connect(g); g.connect(actx.destination);
-  o.start(t0); o.stop(t+0.02);
+  voice(0.5, 0.16);   // 要望対応：両パートとも1オクターブ低く（元は1）
+  voice(0.25, 0.12);  // 要望対応：両パートとも1オクターブ低く（元は0.5、＝主旋律のさらに1オクターブ下）
 }
 const SFX = {
   shot(){ noiseBurst(0.05,2200,3200,0.1); },
   hit(){ noiseBurst(0.08,900,400,0.16); },
   destroy(){ noiseBurst(0.18,700,120,0.2); },
+  bigExplosion(){ noiseBurst(1.8,300,40,0.35); noiseBurst(2.7,150,20,0.3); }, // 要望対応：最終ボス撃破用の派手な爆音（不具合修正：持続時間を現行の3倍に）
   playerHit(){ noiseBurst(0.25,300,80,0.26); },
   warning(){ beepTone(880,0.15,0.22); setTimeout(()=>beepTone(880,0.15,0.22),260); setTimeout(()=>beepTone(880,0.15,0.22),520); },
   bossWarningSiren(){ playBossWarningSiren(); },
@@ -585,6 +638,10 @@ const SFX = {
   dodge(){ noiseBurst(0.5,1500,100,0.22); }
 };
 
+
+/* ============================================================
+   入力（タッチ／マウス／キーボード／ゲームパッド）
+   ============================================================ */
 const input = { active:false,x:0,y:0,downTime:0,lastTapTime:0,tapCount:0,dodgeRequested:false };
 // 矢印キー／WASD移動対応：タッチ/マウスとは独立に押下状態を追跡し、input.activeへ合成する
 let pointerHeld = false;
@@ -592,6 +649,25 @@ let keyHeld = false;
 const keyDir = {x:0,y:0};
 const keysHeld = new Set();
 const MOVE_KEY_VECTORS = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0], KeyW:[0,-1], KeyS:[0,1], KeyA:[-1,0], KeyD:[1,0] };
+// 不具合修正：ゲームで使うキーに対してpreventDefault()を呼んでおらず、ブラウザ本来の挙動
+// （矢印キーでのページスクロール等）と衝突していた。特に上下キーはスクロールが起きるが
+// 左右キーはスクロール先が無く何も起きないため、「上下だけ反応して左右は無反応」という
+// 非対称な症状に見えていた。ゲームで使う全キーをここでまとめてpreventDefaultする
+const GAME_KEY_CODES = new Set([
+  'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD',
+  'KeyZ','KeyX','ShiftLeft','ShiftRight','KeyB'
+]);
+// keydownはこれまで4箇所で個別にリスナー登録していたため、処理の流れが追いにくかった。
+// 窓口を1つにまとめ、従来の登録順どおりに①〜④を呼ぶ（ブラウザは登録順に呼ぶため挙動は同一）。
+// ※③→④のように、前段が状態を変えた結果を後段が見る依存関係が既にあるため、順序は変更しないこと
+const keydownHandlers = [];
+window.addEventListener('keydown', e=>{ for(const h of keydownHandlers) h(e); }, {passive:false});
+const keyupHandlers = [];
+window.addEventListener('keyup', e=>{ for(const h of keyupHandlers) h(e); });
+// ①ゲームで使うキーのブラウザ既定動作（ページスクロール等）を打ち消す
+keydownHandlers.push(e=>{
+  if(GAME_KEY_CODES.has(e.code)) e.preventDefault();
+});
 function recomputeKeyDir(){
   let dx=0, dy=0;
   for(const code of keysHeld){ const v=MOVE_KEY_VECTORS[code]; if(v){ dx+=v[0]; dy+=v[1]; } }
@@ -602,19 +678,62 @@ function recomputeKeyDir(){
   else if(!pointerHeld){ input.active = false; }
 }
 
+// 要望対応：オープニングで「タップで開始」のヒントが出ている（＝視聴済み）間は、
+// タップだけでなく任意のキーでもタイトルへ進めるようにする。
+// 不具合修正：リザルト画面／スタッフロールでもタップと同様、任意のキーで先へ進めるようにする
+// （キーボードでは戻れないという報告への対応。タップ時の処理と完全に揃える）
+// ②オープニング／リザルト／スタッフロールを任意のキーで先へ進める
+// 不具合修正：ここで題名へ遷移すると、同一のkeydownイベントを後段の⑤（題名画面のハンドラ）も
+// 受け取ってしまい、題名に留まらずそのままゲームが始まっていた（オープニング・全滅・時間切れの
+// いずれの画面でも発生。キーボードだけ題名画面に戻れない状態だった）。
+// このハンドラで画面を送ったイベントは「消費済み」と印を付け、後段では無視させる
+keydownHandlers.push(e=>{
+  if(state==='opening' && hasSeenOpening()){ enterTitle(); e.__kcConsumed = true; }
+  else if(state==='result'){
+    if(resultReason==='clear'){ startStaffRoll(); }
+    else { stopSong(); enterTitle(); }
+    e.__kcConsumed = true;
+  }
+  else if(state==='staffroll'){
+    if(!rankingFormActive && hasSeenStaffRoll()){ finishStaffRollFlow(); e.__kcConsumed = true; }
+  }
+});
+
 // 要望対応：東方風操作（キーボード）＋ゲームパッド対応
 // Z＝ショット（押している間のみ発射、移動とは独立）、X＝ボム（＝緊急避難を1発で発動）、
 // Shift＝低速移動（押している間のみ、精密操作用）
 let keyFireHeld = false;
 let keySlowHeld = false;
-window.addEventListener('keydown', e=>{
+// 要望対応：X/ゲームパッドBの緊急回避も、タップ式と同じ段階的連打回数（1回目3回、2回目5回、3回目以降8回）を要求する。
+// 1回押すだけで即発動していたため楽勝だった不具合を修正
+let keyXPressCount = 0;
+let keyXPressLastTime = 0;
+const KEY_X_PRESS_WINDOW = 600; // 連打とみなす時間幅（ms）
+let gpBPressCount = 0;
+let gpBPressLastTime = 0;
+function handleBombPress(source){
+  const now = performance.now();
+  if(source==='key'){
+    if(now-keyXPressLastTime > KEY_X_PRESS_WINDOW) keyXPressCount = 0;
+    keyXPressCount++;
+    keyXPressLastTime = now;
+    if(keyXPressCount >= dodgeRequiredTaps()){ input.dodgeRequested = true; keyXPressCount = 0; }
+  } else {
+    if(now-gpBPressLastTime > KEY_X_PRESS_WINDOW) gpBPressCount = 0;
+    gpBPressCount++;
+    gpBPressLastTime = now;
+    if(gpBPressCount >= dodgeRequiredTaps()){ input.dodgeRequested = true; gpBPressCount = 0; }
+  }
+}
+// ③戦闘中のZ（発射）／Shift（低速）／X（緊急避難）
+keydownHandlers.push(e=>{
   if(state!=='playing' || demoActive) return;
   if(e.code==='KeyZ'){ keyFireHeld = true; }
   else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = true; }
-  else if(e.code==='KeyX'){ if(!keyXHeldPrev){ input.dodgeRequested = true; } keyXHeldPrev = true; }
+  else if(e.code==='KeyX'){ if(!keyXHeldPrev){ handleBombPress('key'); } keyXHeldPrev = true; }
 });
 let keyXHeldPrev = false;
-window.addEventListener('keyup', e=>{
+keyupHandlers.push(e=>{
   if(e.code==='KeyZ'){ keyFireHeld = false; }
   else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = false; }
   else if(e.code==='KeyX'){ keyXHeldPrev = false; }
@@ -630,11 +749,28 @@ let gpPrevBombBtn = false;
 let gpPrevStartBtn = false;
 const GAMEPAD_DEADZONE = 0.2;
 const GAMEPAD_SLOW_BUTTON_INDEXES = [4,5,6,7,10,11]; // L1,R1,L2,R2,L3,R3 相当
+// 保険的な対応：gamepadconnected/disconnectedイベントも拾っておく（getGamepads()のポーリングだけでも
+// 動作するはずだが、接続検知の取りこぼしを減らすため）。多くのブラウザはスティック操作だけでは
+// ゲームパッドを認識せず、ボタンを一度押すまで情報を公開しない仕様（プライバシー対策）である点に注意
+window.addEventListener('gamepadconnected', ()=>{});
+window.addEventListener('gamepaddisconnected', ()=>{});
+let gamepadBlocked = false; // Permissions-Policyでgamepad機能がブロックされている環境を検知したらtrueにし、以後呼ばない
 function pollGamepad(){
-  const padsRaw = (navigator.getGamepads ? navigator.getGamepads() : []);
+  gpDir.x = 0; gpDir.y = 0; gpFireHeld = false; gpSlowHeld = false;
+  if(gamepadBlocked || !navigator.getGamepads) return;
+  let padsRaw;
+  try{
+    padsRaw = navigator.getGamepads();
+  } catch(e){
+    // 不具合修正：一部の環境（Permissions-Policyでgamepad機能が許可されていないホスティング等）では
+    // navigator.getGamepads()がSecurityErrorを同期的に投げる。これを無防備に呼んでいたため、
+    // 毎フレーム例外が発生してrequestAnimationFrame(frame)へ辿り着けず、フレームループ全体が
+    // 実質的に止まっていた（ゲームパッドだけでなく、タッチ操作やキーボードが効かなくなる不具合の真因）
+    gamepadBlocked = true;
+    return;
+  }
   let gp = null;
   for(let i=0;i<padsRaw.length;i++){ if(padsRaw[i]){ gp = padsRaw[i]; break; } }
-  gpDir.x = 0; gpDir.y = 0; gpFireHeld = false; gpSlowHeld = false;
   if(!gp) return;
   let ax = gp.axes[0]||0, ay = gp.axes[1]||0;
   if(Math.hypot(ax,ay) < GAMEPAD_DEADZONE){ ax=0; ay=0; }
@@ -650,7 +786,7 @@ function pollGamepad(){
     gpFireHeld = btn(0); // Aボタン
     gpSlowHeld = GAMEPAD_SLOW_BUTTON_INDEXES.some(i=>btn(i));
     const bombNow = btn(1); // Bボタン
-    if(bombNow && !gpPrevBombBtn){ input.dodgeRequested = true; }
+    if(bombNow && !gpPrevBombBtn){ handleBombPress('gp'); }
     gpPrevBombBtn = bombNow;
   }
 }
@@ -668,10 +804,19 @@ let usingDirectionalMove = false; // updatePlayerMovement側で速度計算に�
 let directionalAnalogMag = 1;     // ゲームパッドの傾き量（0〜1）。キーボードは常に1
 function updateDirectionalMovement(){
   usingDirectionalMove = false;
-  if(pointerHeld) return; // マウス/タッチ操作中はそちらを優先
+  if(pointerHeld || demoActive) return; // マウス/タッチ操作中はそちらを優先。デモ中はキーボード/ゲームパッドの入力を完全に無視する
+  // （ゲームパッド接続時、スティックのドリフトがデッドゾーンを超えているとデモのAI操作を
+  // 上書きしてしまい、片方向にしか動かなくなる不具合があった）
   const dx = keyDir.x + gpDir.x, dy = keyDir.y + gpDir.y;
   const rawMag = Math.hypot(dx,dy);
-  if(rawMag < 0.05) return;
+  if(rawMag < 0.05){
+    // 不具合修正：スティック/キーがニュートラルに戻った際、input.activeをfalseに戻さず
+    // 直前の古い目標座標が残ったままだった。次フレームでusingDirectionalMoveがfalseになる一方
+    // 目標座標は残っていたため、タッチ操作用の上方向オフセット（1.2マス）が誤って適用され、
+    // 停止直後に自機が一瞬だけ上にずれて見える不具合の原因になっていた
+    input.active = false;
+    return;
+  }
   directionalAnalogMag = Math.min(1, rawMag);
   const nx = dx/rawMag, ny = dy/rawMag;
   input.x = player.x + nx*KEY_MOVE_LOOKAHEAD;
@@ -714,14 +859,17 @@ let secretTapLastTime = 0;
 const INVINCIBLE_TAP_REQUIRED = 24;
 let invincibleTapCount = 0;
 let invincibleTapLastTime = 0;
+function interruptAttractMode(){
+  // アトラクトループ中は、どの画面でも操作があった瞬間に中断し、操作可能な本物の題名へ戻す
+  attractMode = false; demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0;
+  hideAttractRanking();
+  enterTitle();
+}
 function pointerDown(cx,cy){
   ensureAudio();
   idleTimer = 0; // 何らかの操作があったら無操作タイマーをリセット
   if(attractMode){
-    // アトラクトループ中は、どの画面でもタップした瞬間に中断し、操作可能な本物の題名へ戻す
-    attractMode = false; demoActive = false; attractPhase = 'title'; attractPhaseTimer = 0;
-    hideAttractRanking();
-    enterTitle();
+    interruptAttractMode();
     return; // このタップ自体はゲーム開始などには使わない
   }
   // 要望対応：ポーズ中はポーズボタンの再タップ（解除）以外は無視する
@@ -824,10 +972,17 @@ canvas.addEventListener('mousemove',e=>pointerMove(e.clientX,e.clientY));
 canvas.addEventListener('mouseup',()=>pointerUp());
 
 // 矢印キー／WASDでの移動対応（SNSでの公言を受けてこのバージョンで実装）
-window.addEventListener('keydown', e=>{
-  if(MOVE_KEY_VECTORS[e.code] && state==='playing'){ keysHeld.add(e.code); recomputeKeyDir(); }
+// 不具合修正：デモプレイ中にキーボードを押すと、デモ自身の移動ロジックと競合して
+// 挙動がおかしくなっていた。タップと同じく「操作があった瞬間にデモを中断してタイトルへ戻す」
+// 動きに統一する（移動キーとして処理するのはやめる）
+// ④移動キー（矢印／WASD）の押下状態を管理
+keydownHandlers.push(e=>{
+  if(MOVE_KEY_VECTORS[e.code] && state==='playing'){
+    if(attractMode || demoActive){ interruptAttractMode(); return; }
+    keysHeld.add(e.code); recomputeKeyDir();
+  }
 });
-window.addEventListener('keyup', e=>{
+keyupHandlers.push(e=>{
   if(MOVE_KEY_VECTORS[e.code]){ keysHeld.delete(e.code); recomputeKeyDir(); }
 });
 
@@ -839,7 +994,10 @@ const TITLE_LEFT_KEYS = new Set(['ArrowLeft','KeyA']);
 const TITLE_RIGHT_KEYS = new Set(['ArrowRight','KeyD']);
 const KONAMI_SEQUENCE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','KeyB','KeyA'];
 let konamiProgress = 0;
-window.addEventListener('keydown', e=>{
+// ⑤題名画面のモード選択・コナミコマンド
+keydownHandlers.push(e=>{
+  // 不具合修正：②で画面を送った直後の同一イベントでは反応しない（題名に留まる）
+  if(e.__kcConsumed){ konamiProgress = 0; return; }
   if(state!=='title'){ konamiProgress = 0; return; }
   if(attractMode) return;
   if(titleDeciding) return; // 要望対応：決定演出中の多重入力を無視
@@ -875,6 +1033,12 @@ function confirmTitleModeAndStart(){
   setTimeout(()=>{ titleDeciding=false; startGame(); }, TITLE_DECIDE_FLASH_MS);
 }
 function enterTitle(){ state='title'; titleModeConfirmed=false; } // タイトルへ遷移する処理を一本化（毎回フラグをリセットするため）
+// 題名画面ではVEZARを流さず止める。曲停止＋遷移の組が複数箇所にあったため共通化
+function stopSongAndEnterTitle(){ stopSong(); enterTitle(); }
+
+/* ============================================================
+   ゲーム状態・進行
+   ============================================================ */
 let elapsed=0;
 const GAME_DURATION=180000;
 let stageIndex=0;
@@ -909,6 +1073,10 @@ function initStars(){
   });
 }
 
+
+/* ============================================================
+   敵の生成と編隊
+   ============================================================ */
 let formation = { anchorX: 12, anchorY: 2, dir: 1, stepDown: 0.9 };
 let stageStartElapsed = 0;
 
@@ -918,21 +1086,26 @@ function colorForRow(slotY){
   return ROW_COLOR_PALETTE[idx % ROW_COLOR_PALETTE.length];
 }
 
+// 通常敵と固定文字敵（フレーズ編隊）は、耐久＝画数÷2という基本部分が共通だったため生成処理を一本化する。
+// 違いは色・突入までの待ち時間・文字サイズを揃えるかどうかだけなので、それらをextraで上書きする
+// 突入までの待ち時間は「基準値＋乱数幅」で指定する。乱数の消費順を原版と揃えるため、
+// fireTimerを先に決めてからdiveDelayを決める（生成される敵の並びが変わらないようにするため）
+function makeEnemy(ch, strokes, slotX, slotY, color, diveBase, diveRange, extra){
+  const hp = Math.max(1, Math.ceil(strokes/2));
+  const fireTimer = 800+Math.random()*2000;
+  const diveDelay = diveBase+Math.random()*diveRange;
+  return Object.assign({
+    ch, strokes, hp, maxHp:hp, slotX, slotY, x:0, y:-2, vx:0, vy:0,
+    hitFlash:0, fireTimer, color,
+    pattern:'march', diveT:0, diveState:'hover', diveDelay, loopT:0
+  }, extra);
+}
 function makeEnemyBase(slotX, slotY, tier){
   const pick = pickFromTier(tier); // tier未指定時はpickFromTier内部でREGULAR_POOL全体から選ぶ
-  const strokes = pick[1];
-  const hp = Math.max(1, Math.ceil(strokes/2));
-  return { ch:pick[0], strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
-           hitFlash:0, fireTimer:800+Math.random()*2000, color:colorForRow(slotY),
-           pattern:'march', diveT:0, diveState:'hover', diveDelay:800+Math.random()*2500, loopT:0 };
+  return makeEnemy(pick[0], pick[1], slotX, slotY, colorForRow(slotY), 800, 2500);
 }
-
 function makeEnemyFixed(ch, strokes, slotX, slotY){
-  const hp = Math.max(1, Math.ceil(strokes/2));
-  return { ch, strokes, hp, maxHp:hp, slotX, slotY, x:0,y:-2, vx:0,vy:0,
-           hitFlash:0, fireTimer:800+Math.random()*2000, color:'#ffcf6a',
-           pattern:'march', diveT:0, diveState:'hover', diveDelay:1500+Math.random()*2500, loopT:0,
-           uniformSize:true };
+  return makeEnemy(ch, strokes, slotX, slotY, '#ffcf6a', 1500, 2500, { uniformSize:true });
 }
 
 let stage0WaveInitialCount = 60;
@@ -957,23 +1130,36 @@ function spawnStage0Wave(){
   stage0WaveInitialCount = enemies.filter(e=>e.pattern==='march').length;
 }
 
+let usedPhrasesThisRun = new Set(); // 要望対応：1プレイ内で既出のフレーズは記録し、再度出さないようにする
+function pickUnusedPhrase(excludeText){
+  let avail = PHRASE_POOL.filter(p=>!usedPhrasesThisRun.has(p.text) && p.text!==excludeText);
+  if(avail.length===0){
+    // 枯渇したら（全フレーズ使い切った等）、直近のexcludeTextとの重複だけは避けつつ全体から選び直す
+    avail = PHRASE_POOL.filter(p=>p.text!==excludeText);
+  }
+  return avail[Math.floor(Math.random()*avail.length)];
+}
 function spawnStage3PhraseFormation(){
-  // 2つの異なるフレーズを選択
-  let phrase1 = Math.random()<0.7 ? PHRASE_POOL[0] : PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
-  let phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+  // 2つの異なるフレーズを選択（既出のものは除外する）。元の仕様通り、未使用ならPHRASE_POOL[0]を70%優先
+  let phrase1;
+  if(!usedPhrasesThisRun.has(PHRASE_POOL[0].text) && Math.random()<0.7){ phrase1 = PHRASE_POOL[0]; }
+  else { phrase1 = pickUnusedPhrase(null); }
+  let phrase2 = pickUnusedPhrase(phrase1.text);
 
   // 連続文字チェック（1フレーズ内の隣接同字）
   let attempts = 0;
   while(hasConsecutiveSameChars(phrase1.text) && attempts < 20){
-    phrase1 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+    phrase1 = pickUnusedPhrase(null);
     attempts++;
   }
   // フレーズ2は「自身の隣接同字」に加え「フレーズ1との文字重複」も無いものを選び直す
   attempts = 0;
   while((hasConsecutiveSameChars(phrase2.text) || sharesAnyChar(phrase1.text, phrase2.text)) && attempts < 30){
-    phrase2 = PHRASE_POOL[Math.floor(Math.random()*PHRASE_POOL.length)];
+    phrase2 = pickUnusedPhrase(phrase1.text);
     attempts++;
   }
+  usedPhrasesThisRun.add(phrase1.text);
+  usedPhrasesThisRun.add(phrase2.text);
 
   // === 16文字編隊（8文字×2行、2フレーズ結合）===
   const colsN = 8, spacing = 1.15;
@@ -1061,6 +1247,10 @@ function updateFormationEnemy(e, dt){
     e.x += (e.vx + Math.sin(e.wobblePhase)*0.6) * dt/1000;
     e.y += e.vy * dt/1000;
     e.x = Math.max(0.5, Math.min(cols-0.5, e.x));
+  } else if(e.pattern==='advFormation'){
+    e.advT += dt;
+    e.x = e.advBaseX + e.slotX + Math.cos(e.advT*e.advFreq + e.advPhase)*e.advAmp;
+    e.y += 2.0*dt/1000 + Math.sin(e.advT*e.advFreq*1.6)*0.0015*dt;
   } else if(e.pattern==='incoming'){
     e.incomingT += dt/1800;
     const t = Math.min(1, e.incomingT);
@@ -1239,9 +1429,15 @@ function spawnEscortFormation(){
   }
 }
 
+// 弾色の既定値と「自機方向の単位ベクトル」の算出が各発射関数で重複していたため切り出す
+function bulletColor(e){ return e.color || '#ff3b3b'; }
+function aimAtPlayer(e){
+  const dx = player.x-e.x, dy = player.y-e.y, d = Math.hypot(dx,dy) || 1;
+  return { nx: dx/d, ny: dy/d };
+}
 function fireEnemyBullet(e, count){
   count = count || 1;
-  const color = e.color || '#ff3b3b';
+  const color = bulletColor(e);
   for(let i = 0; i < count; i++){
     const spread = count > 1 ? (i - (count-1)/2) * 0.35 : 0;
     eBullets.push({
@@ -1255,24 +1451,23 @@ function fireEnemyBullet(e, count){
   }
 }
 function fireRadialBullets(e,n,speed,angleOffset){
-  const color = e.color || '#ff3b3b';
+  const color = bulletColor(e);
   for(let i=0;i<n;i++){
     const ang = (angleOffset||0) + (i/n)*Math.PI*2;
     eBullets.push({x:e.x,y:e.y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,color});
   }
 }
 function fireAimedBullet(e,speed){
-  const color = e.color || '#ff3b3b';
-  const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1;
-  eBullets.push({x:e.x,y:e.y,vx:dx/d*speed,vy:dy/d*speed,color});
+  const a = aimAtPlayer(e);
+  eBullets.push({x:e.x,y:e.y,vx:a.nx*speed,vy:a.ny*speed,color:bulletColor(e)});
 }
 function fireHomingBullets(e,n,speed){
   n = Math.min(n,2); // 要望対応：追尾弾は強すぎたため2発までに削減
-  const color = e.color || '#ff3b3b';
+  const color = bulletColor(e);
+  const a = aimAtPlayer(e);
   for(let i=0;i<n;i++){
     const spread = n>1 ? (i-(n-1)/2)*0.5 : 0;
-    const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1;
-    const baseVx=dx/d*speed, baseVy=dy/d*speed;
+    const baseVx=a.nx*speed, baseVy=a.ny*speed;
     // 初速に少し扇状のばらつきを持たせつつ、以降updateEnemyBullets側で自機方向へ旋回させる
     const cos=Math.cos(spread), sin=Math.sin(spread);
     eBullets.push({
@@ -1283,9 +1478,66 @@ function fireHomingBullets(e,n,speed){
     });
   }
 }
+
+/* ============================================================
+   弾・パーティクル・クリア演出
+   ============================================================ */
 function addPopup(x,y,text,color){ popups.push({x,y,text,color,life:700,t:0}); }
-function addParticles(x,y,n,color){
-  for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,life:300+Math.random()*300,t:0,ch:(Math.random()<0.5?'炎':'火'),color});
+// 通常の被弾用と、最終ボス爆散用の特大バーストは飛散速度と寿命が違うだけだったため引数で一本化した。
+// spread=飛散速度の倍率、lifeScale=寿命の倍率（最終ボスは画面外まで届くよう大きくする）
+function addParticles(x,y,n,color,spread,lifeScale){
+  const sp = spread || 4, ls = lifeScale || 1;
+  for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*sp,vy:(Math.random()-0.5)*sp,life:(300+Math.random()*300)*ls,t:0,ch:(Math.random()<0.5?'炎':'火'),color});
+}
+// 要望対応：最終ボス撃破時の爆散専用。画面外まで届く速度・現行の3倍の持続時間にした特大バースト
+function addBigExplosionParticles(x,y,n,color){ addParticles(x,y,n,color,28,3); }
+
+// 要望対応：最終ボス撃破後のクリア演出。全128種の漢字を8列×8匹の縦編隊×2回（合計128匹）で
+// 画面下からsin/cosの動きで上へ流し、上に近づくほど彩色→白へ変化させる。演出中、敵編隊は
+// 弾を吐かない（そもそも通常の敵配列とは別管理にして無害化している）
+let celebrationSprites = [];
+let clearCelebrationTimer = 0;
+let clearWave2Spawned = false;
+// 要望対応：クリア演出。各列が独自のsin波で蛇行しながら上昇。列は崩さない。
+// 演出8秒 + 余韻2秒（clearAfterGlow状態）→ リザルト
+const CLEAR_CELEBRATION_MS = 8000;
+const CLEAR_WAVE2_DELAY_MS = 2000;
+const CEL_RISE_SPEED = (rows + 4) / 5.0; // 上昇速度（約5秒で画面を抜ける）
+function spawnClearCelebrationWave(startIndex){
+  const spacingX = cols / 8;
+  for(let col = 0; col < 8; col++){
+    const baseX = spacingX * (col + 0.5);
+    // 列ごとに異なる蛇行パラメータ（位相・振幅・周波数）を持たせる
+    // 振幅は列間隔の半分以下に抑えて重ならないように
+    const phase  = (col / 8) * Math.PI * 2;          // 列ごとに位相をずらす
+    const amp    = 0.35 + (col % 3) * 0.12;           // 0.35～0.59（列間隔3.0の1/5以下）
+    const freq   = 0.0018 + (col % 4) * 0.0003;       // 列ごとに少し異なる周期
+    for(let row = 0; row < 8; row++){
+      const kanji = KANJI_POOL[(startIndex + col * 8 + row) % KANJI_POOL.length];
+      // 下から順に並ぶ（row=0が最下）。行間は1.1セルで整列
+      const startY = rows + 2 + row * 1.1;
+      celebrationSprites.push({
+        ch: kanji[0], baseX, phase, amp, freq, startY,
+        y: startY,
+        color: ROW_COLOR_PALETTE[(col + row) % ROW_COLOR_PALETTE.length],
+        t: 0
+      });
+    }
+  }
+}
+function startClearCelebration(){
+  clearTimeMs = elapsed;
+  enemies = []; eBullets = []; pBullets = [];
+  celebrationSprites = [];
+  state = 'clearCelebration';
+  clearCelebrationTimer = 0;
+  clearWave2Spawned = false;
+  spawnClearCelebrationWave(0);
+}
+function lerpColorToWhite(hex, t){
+  const r = parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  const nr = Math.round(r+(255-r)*t), ng=Math.round(g+(255-g)*t), nb=Math.round(b+(255-b)*t);
+  return `rgb(${nr},${ng},${nb})`;
 }
 
 function damageEnemy(e, isBoss){
@@ -1312,8 +1564,13 @@ function damageEnemy(e, isBoss){
         startApproachPhase();
         ensureAudio(); playPromenade();
       } else {
-        clearTimeMs = elapsed;
-        endGame('clear');
+        // 要望対応：最終ボスは爆散を派手に（追加のパーティクルバースト＋派手な爆音）してからクリア演出へ
+        // 不具合修正：画面外まで爆散が届く範囲に拡大し、持続時間も現行の3倍にした
+        addBigExplosionParticles(e.x,e.y, 60, '#ffffff');
+        addBigExplosionParticles(e.x,e.y, 40, '#ffee33');
+        addBigExplosionParticles(e.x,e.y, 30, '#ff8a3b');
+        SFX.bigExplosion();
+        startClearCelebration();
       }
     }
     return true;
@@ -1333,6 +1590,27 @@ function spawnApproachEnemy(){
   approachSpawnedCount++;
 }
 
+// 要望対応：ステージ2（第二形態）の冒険篇に「8文字編隊が上部からcos/sinで画面下へ」を追加。
+// 1回の冒険篇あたり約4編隊。意味を成さないランダムな漢字（他の冒険篇の敵と同じ方針）
+const ADV_FORMATION_SIZE = 8;
+const ADV_FORMATION_QUOTA = 4;
+let advFormationSpawned = 0;
+let advFormationSpawnTimer = 0;
+function spawnAdventureFormation(){
+  const baseX = cols/2 + (Math.random()-0.5)*(cols-6);
+  const phase = Math.random()*Math.PI*2;
+  const amp = 2 + Math.random()*2;
+  const freq = 0.0015 + Math.random()*0.0008;
+  for(let i=0;i<ADV_FORMATION_SIZE;i++){
+    const e = makeEnemyBase(0, i*1.1, TIER_WEAK); // 要望対応：横方向のオフセットは無しにして縦一列に並べる
+    e.pattern = 'advFormation';
+    e.advBaseX = baseX; e.advPhase = phase; e.advAmp = amp; e.advFreq = freq; e.advT = 0;
+    e.x = baseX; e.y = -2 - i*1.1;
+    enemies.push(e);
+  }
+  advFormationSpawned++;
+}
+
 function startApproachPhase(){
   // 冒険パート（グラディウス空中面風）：繋げても意味をなさない編隊＋ランダムな敵の襲来
   // 最大10秒、または敵を一掃したら即本編へ
@@ -1341,6 +1619,8 @@ function startApproachPhase(){
   approachTimer = 10000;
   approachSpawnTimer = 300;
   approachSpawnedCount = 0;
+  advFormationSpawned = 0;
+  advFormationSpawnTimer = 1200; // 最初の編隊は少し間を置いてから
   if(stageIndex===2){
     spawnStage3PhraseFormation(); // ステージ3のみ、ここで意味のある四字熟語（8文字）が発現
     approachQuota = 8;
@@ -1354,6 +1634,7 @@ function resetGame(){
   score=0n; combo=0; comboMax=0; elapsed=0; stageIndex=0; stageStartElapsed=0; clearTimeMs=0;
   bossSpawnedFor=[false,false,false]; bossActive=null; bossPending=null; bossClearTimer=0;
   bossCharsUsedThisRun = new Set();
+  usedPhrasesThisRun = new Set();
   pBullets=[]; eBullets=[]; particles=[]; popups=[];
   player.x=cols/2; player.y=rows-2; player.hp=player.maxHp; player.invuln=0; player.fireTimer=0;
   playerTopLocked = false;
@@ -1438,6 +1719,7 @@ function showRankingForm(){
   document.getElementById('rankStatus').textContent = '';
   document.getElementById('rankForm').style.display = 'block';
   document.getElementById('rankList').style.display = 'none';
+  document.getElementById('rankContinueHint').style.display = 'block'; // 送信フォーム表示中も閉じられるように常時表示
   document.getElementById('rankOverlay').style.display = 'flex';
 }
 
@@ -1480,7 +1762,7 @@ async function refreshRankingList(){
 function hideRankingOverlay(){
   document.getElementById('rankOverlay').style.display = 'none';
   rankingFormActive = false;
-  stopSong(); enterTitle(); // 訂正：題名画面ではVEZARを流さず止める
+  stopSongAndEnterTitle();
 }
 
 // アトラクトループ中のランキング表示：既存のrankOverlay/rankListを流用（送信フォームは出さない）
@@ -1510,22 +1792,22 @@ document.getElementById('rankContinueHint').addEventListener('click', hideRankin
 // 暗号化・署名検証は行わない（「速く、軽く、確実に」方針、チート対策としては機能しない旨は運用側で合意済み）。
 // 同一プレイヤーがランキングに重複して並ぶのを防ぐための、あくまで善意のプレイヤー向けの軽量ガード。
 const LOCAL_BEST_SCORE_KEY = 'kc_local_best_score';
+// localStorageはプライベートブラウズ等で例外を投げるため、try/catchの定型を集約する
+function lsGet(key, fallback){ try{ const v = localStorage.getItem(key); return v == null ? fallback : v; }catch(e){ return fallback; } }
+function lsSet(key, value){ try{ localStorage.setItem(key, value); }catch(e){} }
 function getLocalBestScore(){
-  try{
-    const raw = localStorage.getItem(LOCAL_BEST_SCORE_KEY);
-    return raw ? BigInt(raw) : 0n;
-  }catch(e){ return 0n; }
+  const raw = lsGet(LOCAL_BEST_SCORE_KEY, null);
+  try{ return raw ? BigInt(raw) : 0n; }catch(e){ return 0n; }
 }
-function saveLocalBestScore(s){
-  try{ localStorage.setItem(LOCAL_BEST_SCORE_KEY, s.toString()); }catch(e){}
-}
+function saveLocalBestScore(s){ lsSet(LOCAL_BEST_SCORE_KEY, s.toString()); }
 
 // ============ 初見ロック（オープニング・エンディング/スタッフロール） ============
 // 一度最後まで見終わるまではタップでスキップできない。未視聴の間は「タップで～」のヒントも出さない。
-function hasSeenOpening(){ try{ return localStorage.getItem('kc_seen_opening')==='1'; }catch(e){ return true; } }
-function markSeenOpening(){ try{ localStorage.setItem('kc_seen_opening','1'); }catch(e){} }
-function hasSeenStaffRoll(){ try{ return localStorage.getItem('kc_seen_staffroll')==='1'; }catch(e){ return true; } }
-function markSeenStaffRoll(){ try{ localStorage.setItem('kc_seen_staffroll','1'); }catch(e){} }
+// 読み出しに失敗する環境では「視聴済み」として扱う（スキップ不能で詰まないようにするため）
+function hasSeenOpening(){ return lsGet('kc_seen_opening', '1') === '1'; }
+function markSeenOpening(){ lsSet('kc_seen_opening', '1'); }
+function hasSeenStaffRoll(){ return lsGet('kc_seen_staffroll', '1') === '1'; }
+function markSeenStaffRoll(){ lsSet('kc_seen_staffroll', '1'); }
 
 function endGame(reason){
   state='result'; resultReason=reason; resultClearTimer=0;
@@ -1544,10 +1826,9 @@ const OPENING_LINES = [
 const OPENING_LINE_UNIT_LINES = 10; // 行間：10行分の改行ぶんの空きを取る
 const OPENING_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
 const OPENING_SPEED_MS_PER_CELL = 300; // スクロール速度：cell1個ぶん進むのに要する時間（内容が増えても速度は一定に保つ）
-let openingTimer = 0;
-let openingScrollMs = 16000;  // startOpeningで内容量に応じて動的に再計算される
-let openingLineHeight = 0;
-let openingTotalHeight = 0;
+// スクロール演出の状態は「経過時間・行高・全体高・所要時間」の4点で、
+// オープニングとスタッフロールで全く同じ形だったため、1つのオブジェクトにまとめて持つ
+const openingScroll = { timer:0, scrollMs:16000, lineHeight:0, totalHeight:0 }; // scrollMsは開始時に内容量から再計算される
 
 // 要望対応：オープニング／スタッフロールは同種のスクロール演出なので、初期化計算を共通化
 function computeScrollTiming(lines, lineUnitLines, speedMsPerCell){
@@ -1558,10 +1839,15 @@ function computeScrollTiming(lines, lineUnitLines, speedMsPerCell){
   return {lineHeight, totalHeight, scrollMs};
 }
 
+// スクロール演出の開始処理（時間の初期化と、内容量に応じた所要時間の再計算）は両者で同一
+function beginScroll(target, lines, lineUnitLines, speedMsPerCell){
+  target.timer = 0;
+  const r = computeScrollTiming(lines, lineUnitLines, speedMsPerCell);
+  target.lineHeight = r.lineHeight; target.totalHeight = r.totalHeight; target.scrollMs = r.scrollMs;
+}
 function startOpening(){
-  state='opening'; openingTimer = 0;
-  const r = computeScrollTiming(OPENING_LINES, OPENING_LINE_UNIT_LINES, OPENING_SPEED_MS_PER_CELL);
-  openingLineHeight = r.lineHeight; openingTotalHeight = r.totalHeight; openingScrollMs = r.scrollMs;
+  state='opening';
+  beginScroll(openingScroll, OPENING_LINES, OPENING_LINE_UNIT_LINES, OPENING_SPEED_MS_PER_CELL);
 }
 
 // ============ エンディング・スタッフロール ============
@@ -1603,16 +1889,12 @@ const STAFF_ROLL_LINE_UNIT_LINES = 8; // 行間：8行分の改行ぶんの空�
 const STAFF_ROLL_HOLD_MS = 1500;      // スクロール完了後、自動で題名へ戻るまでの待機
 const STAFF_ROLL_SPEED_MS_PER_CELL = 600; // スクロール速度：現状の1/2に変更（要望対応）
 const RESULT_TO_STAFFROLL_MS = 5000;  // 制覇リザルト表示後、無操作でも自動的にスタッフロールへ進むまでの時間
-let staffRollTimer = 0;
-let staffRollScrollMs = 16000;  // startStaffRollで内容量に応じて動的に再計算される
-let staffRollLineHeight = 0;
-let staffRollTotalHeight = 0;
+const staffRollScroll = { timer:0, scrollMs:16000, lineHeight:0, totalHeight:0 };
 let resultClearTimer = 0;
 let staffRollFinished = false;
 function startStaffRoll(){
-  state='staffroll'; staffRollTimer = 0; staffRollFinished = false;
-  const r = computeScrollTiming(STAFF_ROLL_LINES, STAFF_ROLL_LINE_UNIT_LINES, STAFF_ROLL_SPEED_MS_PER_CELL);
-  staffRollLineHeight = r.lineHeight; staffRollTotalHeight = r.totalHeight; staffRollScrollMs = r.scrollMs;
+  state='staffroll'; staffRollFinished = false;
+  beginScroll(staffRollScroll, STAFF_ROLL_LINES, STAFF_ROLL_LINE_UNIT_LINES, STAFF_ROLL_SPEED_MS_PER_CELL);
 }
 // スタッフロール終了後の分岐：順序変更（クリア→スタッフロール→ランキング登録）に伴い、
 // ここで初めて自己ベスト判定＆ランキングフォーム表示を行う。
@@ -1623,14 +1905,46 @@ function finishStaffRollFlow(){
   if(resultReason==='clear' && score > getLocalBestScore()){
     showRankingForm();
   } else {
-    stopSong(); enterTitle(); // 訂正：題名画面ではVEZARを流さず止める
+    stopSongAndEnterTitle();
   }
 }
 
+
+/* ============================================================
+   毎フレームの更新処理（ロジック）
+   ============================================================ */
 const LOGIC_STEP=1000/60;
 let logicAccum=0, lastTime=performance.now();
 
 // ============ ボスのステージ別設定（データ駆動） ============
+// 第二形態と第三形態の移動軌道は完全に同一だったため共通化する（sin/cosの複雑軌道へ滑らかに合流）
+function bossOrbitMove(b, elapsed){
+  const t = elapsed - b.moveT0;
+  const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
+  const targetY = b.baseY + Math.sin(t/1500)*1.6;
+  const ease = Math.min(1, t/1200); // 最初の1.2秒は現在地から滑らかに合流
+  b.x += (targetX-b.x)*0.05*(0.3+ease*0.7);
+  b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
+}
+// ラスボス（第三形態）専用：画面全体を縦横に縦断する大振り軌道。
+// sin/cosの多重合成で不規則感を保ちつつ、Y方向の振幅を画面全体に広げる。
+// 初期降下を上1/4で止めず、画面中央あたりで受け取ってそのまま動的に更新する
+function bossFinalMove(b, elapsed){
+  const t = elapsed - b.moveT0;
+  const ease = Math.min(1, t/1500);
+  // X：画面端ぎりぎりまで広く動く（±cols/2 - 2margin）
+  const targetX = cols/2
+    + Math.sin(t/900)*( cols/2 - 2.5)
+    + Math.cos(t/2300)*2.5;
+  // Y：rows全体を使う。中央(rows/2)を基点に上端〜下端まで振り切る
+  // ゆっくりした大周期 + 速い小周期の合成で「読めない」動きに
+  const targetY = rows/2
+    + Math.sin(t/1800)*( rows/2 - 1.5)   // 大振り：ほぼ上端〜下端
+    + Math.cos(t/1100)*1.8                // 中振り：引っかかり感を出す
+    + Math.sin(t/500 + Math.PI)*0.6;     // 小振り：細かい揺れ
+  b.x += (targetX - b.x) * 0.04 * (0.3 + ease*0.7);
+  b.y += (targetY - b.y) * 0.04 * (0.3 + ease*0.7);
+}
 const BOSS_STAGE_CONFIG = [
   { // 第一形態：シンプルな横揺れ・単純な3方向弾（現状維持）
     move(b, elapsed, dt){ b.x += Math.sin(elapsed/900)*(dt/1000)*1.2; },
@@ -1638,29 +1952,15 @@ const BOSS_STAGE_CONFIG = [
     fire(b){ fireEnemyBullet(b,3); }
   },
   { // 第二形態：sin/cosの複雑軌道＋広がる弾＋螺旋弾（回転する放射弾）を追加
-    move(b, elapsed){
-      const t = elapsed - b.moveT0;
-      const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
-      const targetY = b.baseY + Math.sin(t/1500)*1.6;
-      const ease = Math.min(1, t/1200); // 最初の1.2秒は現在地から滑らかに合流
-      b.x += (targetX-b.x)*0.05*(0.3+ease*0.7);
-      b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
-    },
+    move: bossOrbitMove,
     fireInterval: 600,
     fire(b, elapsed){
       fireEnemyBullet(b,5); fireRadialBullets(b,4,3.6,elapsed/600);
       if(Math.floor(elapsed/600)%3===0) fireAimedBullet(b,6.0); // 要望対応：さらに派手に、狙い撃ちを織り交ぜる
     }
   },
-  { // 第三形態：同じ軌道＋弾幕シューティング級の放射状弾（回転しながら連射）＋追尾弾
-    move(b, elapsed){
-      const t = elapsed - b.moveT0;
-      const targetX = cols/2 + Math.sin(t/1100)*5 + Math.cos(t/1900)*1.8;
-      const targetY = b.baseY + Math.sin(t/1500)*1.6;
-      const ease = Math.min(1, t/1200);
-      b.x += (targetX-b.x)*0.05*(0.3+ease*0.7);
-      b.y += (targetY-b.y)*0.05*(0.3+ease*0.7);
-    },
+  { // 第三形態（ラスボス）：画面全体を縦横に縦断する大振り軌道＋弾幕＋追尾弾
+    move: bossFinalMove,
     fireInterval: 380,
     fire(b, elapsed){
       fireRadialBullets(b, 5, 4.5, elapsed/450);  // 10 → 5 に半減
@@ -1682,8 +1982,17 @@ function updateApproachPhase(dt){
       approachSpawnTimer = 110+Math.random()*90;
     }
   }
+  // 要望対応：ステージ2冒険篇に8文字編隊を追加（cos/sinで上から下へ、1冒険篇あたり約4編隊）
+  const advFormationDone = stageIndex!==1 || advFormationSpawned>=ADV_FORMATION_QUOTA;
+  if(stageIndex===1 && approachTimer>0 && !advFormationDone){
+    advFormationSpawnTimer -= dt;
+    if(advFormationSpawnTimer<=0){
+      spawnAdventureFormation();
+      advFormationSpawnTimer = 2200+Math.random()*600;
+    }
+  }
   // 10秒経過後は新規に発生しないだけ。既存の敵は消さず、倒しきったら本編へ進む
-  if(!spawningAllowed && enemies.length===0){
+  if(!spawningAllowed && advFormationDone && enemies.length===0){
     approachActive = false;
     setupFormationForStage(); // 本編編隊を開始
   }
@@ -1740,8 +2049,13 @@ function updatePlayerMovement(dt){
     const TOUCH_OFFSET_Y = (demoActive || usingDirectionalMove) ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモ・キーボード/ゲームパッド操作では適用しない
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     let tyRaw=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
-    if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
-    if(playerTopLocked && player.y>=rows-1.5) playerTopLocked = false; // 一番下まで来たら解除
+    // 不具合修正：この上端ロックはプレイ中は無効化（プレイヤーからバグと判断されたため）。デモ中のみ有効
+    if(demoActive){
+      if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
+      if(playerTopLocked && player.y>=rows-1.5) playerTopLocked = false; // 一番下まで来たら解除
+    } else {
+      playerTopLocked = false;
+    }
     const ty = playerTopLocked ? Math.max(tyRaw, player.y) : tyRaw; // ロック中は現在地より上には行けない（左右・下方向のみ）
     const dx=tx-player.x, dy=ty-player.y;
     const dist=Math.hypot(dx,dy);
@@ -1793,6 +2107,7 @@ function updateEnemies(dt){
     if(e.fireTimer<=0 && e.x>0 && e.x<cols && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
     if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
     if(e.pattern==='approach' && e.y>rows+2){ enemies.splice(i,1); }
+    if(e.pattern==='advFormation' && e.y>rows+2){ enemies.splice(i,1); }
   }
 }
 
@@ -1801,7 +2116,9 @@ function updateBoss(dt){
   const b=bossActive;
   if(b.vy>0){
     b.y += b.vy*dt/1000;
-    if(b.y>rows*0.28){ b.vy=0; b.baseY=b.y; b.moveT0=elapsed; }
+    // ラスボス（ステージ2）は画面全体を使う軌道のため、中央付近まで降下させてから軌道へ渡す
+    const stopThreshold = stageIndex===2 ? rows*0.45 : rows*0.28;
+    if(b.y>stopThreshold){ b.vy=0; b.baseY=b.y; b.moveT0=elapsed; }
   } else {
     const cfg = BOSS_STAGE_CONFIG[Math.min(stageIndex, BOSS_STAGE_CONFIG.length-1)];
     cfg.move(b, elapsed, dt);
@@ -1896,8 +2213,36 @@ function updateStars(dt){
 
 function updateLogic(dt){
   if(state==='opening'){
-    openingTimer += dt;
-    if(openingTimer >= openingScrollMs + OPENING_HOLD_MS){ markSeenOpening(); enterTitle(); }
+    openingScroll.timer += dt;
+    if(openingScroll.timer >= openingScroll.scrollMs + OPENING_HOLD_MS){ markSeenOpening(); enterTitle(); }
+    return;
+  }
+  if(state==='clearCelebration'){
+    clearCelebrationTimer += dt;
+    if(!clearWave2Spawned && clearCelebrationTimer>=CLEAR_WAVE2_DELAY_MS){
+      spawnClearCelebrationWave(64);
+      clearWave2Spawned = true;
+    }
+    // 各スプライトが列を守りながら蛇行して上昇
+    celebrationSprites.forEach(s=>{
+      s.t += dt;
+      s.y -= CEL_RISE_SPEED * dt / 1000;
+      // x方向の蛇行：列のbaseXを中心にsin波で左右に揺れる（列間隔を超えない振幅）
+      s.x = s.baseX + Math.sin(s.t * s.freq * 2 * Math.PI + s.phase) * s.amp;
+    });
+    updateEffects(dt);
+    updateStars(dt);
+    if(clearCelebrationTimer >= CLEAR_CELEBRATION_MS){
+      state = 'clearAfterGlow';
+      clearCelebrationTimer = 0;
+    }
+    return;
+  }
+  if(state==='clearAfterGlow'){
+    // 余韻2秒：演出終了後の画面をそのまま表示してからリザルトへ
+    clearCelebrationTimer += dt;
+    updateEffects(dt); updateStars(dt);
+    if(clearCelebrationTimer >= 2000){ endGame('clear'); }
     return;
   }
   if(state==='warning'){
@@ -1913,8 +2258,8 @@ function updateLogic(dt){
     return;
   }
   if(state==='staffroll'){
-    staffRollTimer += dt;
-    if(staffRollTimer >= staffRollScrollMs + STAFF_ROLL_HOLD_MS){ finishStaffRollFlow(); }
+    staffRollScroll.timer += dt;
+    if(staffRollScroll.timer >= staffRollScroll.scrollMs + STAFF_ROLL_HOLD_MS){ finishStaffRollFlow(); }
     return;
   }
   if(state==='title'){
@@ -1967,6 +2312,14 @@ function updateLogic(dt){
       if(threat){
         desiredAngle = Math.atan2(player.y-threat.y, player.x-threat.x); // 弾から逃げる
         turnRate = 0.5; // 危険には素早く反応
+      } else if(bossActive){
+        // 要望対応：誘導弾と同じ「対象へ向けて補正し続ける」考え方を自機の位置合わせに使う。
+        // 弾自体は直上のまま変えず、自機の方をボスの真下へ横方向中心に寄せる。
+        // 不具合修正：横方向のみに固定していたため、ボス戦中ずっと縦に動けず画面下に
+        // 張り付いたままになる不具合があった。緩やかな縦方向の揺れを加えて解消する
+        const verticalWobble = Math.sin(elapsed/1500)*0.5;
+        desiredAngle = Math.atan2(verticalWobble, bossActive.x-player.x);
+        turnRate = 0.35; // 不具合修正：追従が遅くボスの真下からずれ続けて倒せない問題の対策として追従速度を上げた
       } else if(prey && Math.random()<0.7){
         desiredAngle = Math.atan2(prey.y-player.y, prey.x-player.x); // 近くの敵へ近づく
         turnRate = 0.08;
@@ -2028,6 +2381,10 @@ function updateLogic(dt){
 // 要望対応：低スペック端末を基準に描画30fpsとしていたが、実際に処理落ちしていないか
 // （直近の実測フレーム時間）を見て、余裕があれば60fpsへ、処理落ちの兆候があれば30fpsへ
 // 自動で切り替える（機種名でなく実測値で判断するため、発熱や他アプリの負荷にも追従できる）
+
+/* ============================================================
+   描画（アダプティブFPS・各画面の描画）
+   ============================================================ */
 let renderAccum=0;
 let RENDER_STEP=1000/30;
 const FPS_SAMPLE_SIZE = 60; // 直近60フレーム分のdtで判定
@@ -2051,9 +2408,11 @@ function draw(){
   else if(state==='playing'){
     drawGame();
     if(demoActive) drawDemoGameOver();
-    else { drawPauseButton(); drawFireToggleButton(); drawFpsDisplay(); if(paused) drawPauseOverlay(); }
+    else { drawPauseButton(); drawFireToggleButton(); drawFpsDisplay(); drawVersionDisplay(); if(paused) drawPauseOverlay(); }
   }
   else if(state==='warning'){ drawGame(); drawWarning(); }
+  else if(state==='clearCelebration'){ drawClearCelebration(); }
+  else if(state==='clearAfterGlow'){ drawClearAfterGlow(); }
   else if(state==='result'){ drawGame(); drawResult(); }
   else if(state==='staffroll') drawStaffRoll();
   else if(state==='demoover'){ drawGame(); drawDemoGameOver(); }
@@ -2080,44 +2439,38 @@ function togglePause(){
   paused = !paused;
   if(actx){ if(paused) actx.suspend(); else actx.resume(); }
 }
-function drawPauseButton(){
+// 画面下部の「止」「連」ボタンは帯を敷いて文字を中央に置くだけで同一構造だったため共通化する
+function drawBottomUiButton(label, left, bgColor, fgColor){
   ctx.save();
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillStyle='rgba(255,255,255,0.15)';
-  ctx.fillRect(W*0.02, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
-  ctx.fillStyle='#fff'; ctx.font=`${cell*0.8}px monospace`;
-  ctx.fillText('止', W*0.11, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(W*left, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
   ctx.restore();
+  drawText(label, W*(left+0.09), H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2), { size: cell*0.8, color: fgColor });
 }
+function drawPauseButton(){ drawBottomUiButton('止', 0.02, 'rgba(255,255,255,0.15)', '#fff'); }
 // 要望対応：連射ON/OFFトグルボタンの描画（ONは緑系、OFFは灰色でひと目で分かるように）
 function drawFireToggleButton(){
-  ctx.save();
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillStyle = touchAutoFireEnabled ? 'rgba(139,255,59,0.22)' : 'rgba(255,255,255,0.08)';
-  ctx.fillRect(W*0.22, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
-  ctx.fillStyle = touchAutoFireEnabled ? '#8aff3b' : '#888';
-  ctx.font=`${cell*0.8}px monospace`;
-  ctx.fillText('連', W*0.31, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
-  ctx.restore();
+  drawBottomUiButton('連', 0.22,
+    touchAutoFireEnabled ? 'rgba(139,255,59,0.22)' : 'rgba(255,255,255,0.08)',
+    touchAutoFireEnabled ? '#8aff3b' : '#888');
 }
 // 要望対応：右下（非移動領域）に現在の実測FPSを表示（アラビア数字OK、デバッグ用に親切なため）
 function drawFpsDisplay(){
   const fps = fpsSamples.length>0 ? Math.round(1000/(fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length)) : Math.round(1000/RENDER_STEP);
-  ctx.save();
-  ctx.textAlign='right'; ctx.textBaseline='middle';
-  ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.font=`${cell*0.45}px monospace`;
-  ctx.fillText(fps+' fps', W*0.98, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
-  ctx.restore();
+  // 要望対応：緊急避難の文字と重ならないよう、その真上に配置
+  drawText(fps+' fps', W-10, H-cell*1.7, { align:'right', size: cell*0.45, color:'rgba(255,255,255,0.6)' });
+}
+// 要望対応：画面内左下（非移動領域、ポーズボタン・連ボタンの下行）にバージョン情報を常時表示
+// 題名画面からも呼ぶため、縦の基準位置だけ引数で切り替えられるようにしている
+function drawVersionDisplay(baseline){
+  drawText(KCV_VERSION, W*0.02, H*0.995, { align:'left', baseline: baseline || 'bottom', size: cell*0.35, color:'rgba(255,255,255,0.3)' });
 }
 function drawPauseOverlay(){
   ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillStyle='#fff'; ctx.font=`bold ${cell*1.5}px monospace`;
-  ctx.fillText('一時停止', W/2, H*0.45);
-  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.55}px monospace`;
-  ctx.fillText('もう一度「止」またはStartで再開', W/2, H*0.55);
   ctx.restore();
+  drawText('一時停止', W/2, H*0.45, { size: cell*1.5, bold: true, color: '#fff' });
+  drawText('もう一度「止」またはStartで再開', W/2, H*0.55, { size: cell*0.55, color: '#88ff88' });
 }
 
 function drawStars(){
@@ -2159,6 +2512,7 @@ function drawTitle(){
   ctx.fillText('モードを選んでタップ', W/2, H*0.685);
   ctx.fillStyle='#888'; ctx.font=`${cell*0.45}px monospace`;
   ctx.fillText('© 2026 ZANTEI TECHNOLOGY', W/2, H*0.92);
+  drawVersionDisplay('middle');
   if(secretTapCount>0 && secretTapCount<SECRET_TAP_REQUIRED){
     ctx.fillStyle='#555'; ctx.font=`${cell*0.4}px monospace`;
     ctx.fillText('・'.repeat(secretTapCount), W/2, H*0.97);
@@ -2201,13 +2555,25 @@ function hudBackdrop(text, x, y, align){
   ctx.restore();
 }
 
+function drawClearCelebration(){
+  drawPlayerChar(1);
+  celebrationSprites.forEach(s=>{
+    const whiteness = Math.max(0, Math.min(1, 1 - (s.y + 2) / (rows + 4)));
+    drawText(s.ch, gx(s.x), gy(s.y), { size: cell*0.9, color: lerpColorToWhite(s.color, whiteness) });
+  });
+  drawParticleLayer();
+}
+function drawClearAfterGlow(){
+  // 余韻：最後の状態をそのまま表示
+  celebrationSprites.forEach(s=>{
+    const whiteness = Math.max(0, Math.min(1, 1 - (s.y + 2) / (rows + 4)));
+    drawText(s.ch, gx(s.x), gy(s.y), { size: cell*0.9, color: lerpColorToWhite(s.color, whiteness) });
+  });
+  drawParticleLayer();
+}
+
 function drawGame(){
-  ctx.save();
-  ctx.globalAlpha = player.invuln>0 ? (Math.floor(elapsed/80)%2===0?0.3:1) : 1;
-  ctx.fillStyle='#3bff88'; ctx.font=`bold ${cell*1.1}px monospace`;
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText('自', gx(player.x), gy(player.y));
-  ctx.restore();
+  drawPlayerChar(player.invuln>0 ? (Math.floor(elapsed/80)%2===0?0.3:1) : 1);
 
   enemies.forEach(e=>{
     const size = e.uniformSize ? cell*1.3 : cell*(0.7+Math.min(1.6,e.strokes/16));
@@ -2275,18 +2641,8 @@ function drawGame(){
     ctx.fill();
   });
 
-  particles.forEach(p=>{
-    const a=1-p.t/p.life;
-    ctx.save(); ctx.globalAlpha=Math.max(0,a); ctx.fillStyle=p.color;
-    ctx.font=`${cell*0.6}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(p.ch, gx(p.x), gy(p.y)); ctx.restore();
-  });
-  popups.forEach(p=>{
-    const a=1-p.t/p.life;
-    ctx.save(); ctx.globalAlpha=Math.max(0,a); ctx.fillStyle=p.color;
-    ctx.font=`bold ${cell*0.7}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(p.text, gx(p.x), gy(p.y)); ctx.restore();
-  });
+  drawParticleLayer();
+  drawPopupLayer();
 
   ctx.save();
   ctx.textAlign='left'; ctx.textBaseline='top';
@@ -2329,14 +2685,15 @@ function drawScrollCredits(cfg){
   ctx.save();
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center'; ctx.textBaseline='middle';
+  const sc = cfg.scroll;
   const startY = H + cell*2;
-  const endY = -cfg.totalHeight - cell*2;
-  const t = Math.min(1, cfg.timer/cfg.scrollMs);
+  const endY = -sc.totalHeight - cell*2;
+  const t = Math.min(1, sc.timer/sc.scrollMs);
   const baseY = startY + (endY-startY)*t;
   ctx.font=`${cell*0.75}px monospace`;
   cfg.lines.forEach((line,i)=>{
-    const y = baseY + i*cfg.lineHeight;
-    if(y > -cfg.lineHeight && y < H+cfg.lineHeight){
+    const y = baseY + i*sc.lineHeight;
+    if(y > -sc.lineHeight && y < H+sc.lineHeight){
       ctx.fillStyle = cfg.colorFn ? cfg.colorFn(line) : '#fff';
       ctx.fillText(line, W/2, y);
     }
@@ -2349,16 +2706,14 @@ function drawScrollCredits(cfg){
 }
 function drawOpening(){
   drawScrollCredits({
-    lines: OPENING_LINES, lineHeight: openingLineHeight, totalHeight: openingTotalHeight,
-    timer: openingTimer, scrollMs: openingScrollMs,
+    lines: OPENING_LINES, scroll: openingScroll,
     hintText: 'タップで開始', hintVisible: hasSeenOpening()
   });
 }
 
 function drawStaffRoll(){
   drawScrollCredits({
-    lines: STAFF_ROLL_LINES, lineHeight: staffRollLineHeight, totalHeight: staffRollTotalHeight,
-    timer: staffRollTimer, scrollMs: staffRollScrollMs,
+    lines: STAFF_ROLL_LINES, scroll: staffRollScroll,
     hintText: 'タップで題名へ戻る', hintVisible: hasSeenStaffRoll(),
     colorFn: line => line.startsWith('©') ? '#888' : '#fff'
   });
@@ -2387,16 +2742,24 @@ function drawResult(){
 }
 
 function frame(now){
-  const dt=Math.min(50, now-lastTime); lastTime=now;
-  trackFrameTiming(dt);
-  pollGamepad();
-  if(!paused){
-    logicAccum += dt;
-    while(logicAccum>=LOGIC_STEP){ updateLogic(LOGIC_STEP); logicAccum-=LOGIC_STEP; }
+  try{
+    const dt=Math.min(50, now-lastTime); lastTime=now;
+    trackFrameTiming(dt);
+    pollGamepad();
+    if(!paused){
+      logicAccum += dt;
+      while(logicAccum>=LOGIC_STEP){ updateLogic(LOGIC_STEP); logicAccum-=LOGIC_STEP; }
+    }
+    renderAccum += dt;
+    if(renderAccum>=RENDER_STEP){ draw(); renderAccum=0; }
+  } catch(e){
+    // 堅牢性対応：ここで想定外の例外が起きても、ループ自体は止めない（1箇所のバグでゲーム全体が
+    // 完全に固まる事態を避ける）。今回のPermissions-Policyの件のような、環境依存で予期せず
+    // 例外を投げるAPIが今後出てきても被害を最小限にするための保険
+    console.error('frame() error:', e);
+  } finally {
+    requestAnimationFrame(frame);
   }
-  renderAccum += dt;
-  if(renderAccum>=RENDER_STEP){ draw(); renderAccum=0; }
-  requestAnimationFrame(frame);
 }
 resize();
 startOpening();
