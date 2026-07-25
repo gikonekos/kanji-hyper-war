@@ -729,9 +729,10 @@ function pointerDown(cx,cy){
     if(isPauseButtonHit(cx,cy)) togglePause();
     return;
   }
-  // 要望対応：プレイ中、画面下部の帯は「移動に使わない領域」。ポーズボタンのタップのみ受け付ける
+  // 要望対応：プレイ中、画面下部の帯は「移動に使わない領域」。ポーズ／連射トグルボタンのタップのみ受け付ける
   if(state==='playing' && !demoActive && cy >= H*BOTTOM_UI_ZONE_START){
     if(isPauseButtonHit(cx,cy)) togglePause();
+    else if(isFireToggleButtonHit(cx,cy)) toggleTouchAutoFire();
     return;
   }
   pointerHeld=true; input.active=true; input.downTime=performance.now();
@@ -787,9 +788,37 @@ function drawDemoGameOver(){
 
 function pointerMove(cx,cy){ if(!input.active || demoActive) return; const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy; }
 function pointerUp(){ pointerHeld=false; if(!keyHeld) input.active=false; }
-canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];pointerDown(t.clientX,t.clientY);},{passive:false});
-canvas.addEventListener('touchmove',e=>{e.preventDefault();const t=e.touches[0];pointerMove(t.clientX,t.clientY);},{passive:false});
-canvas.addEventListener('touchend',e=>{e.preventDefault();pointerUp();},{passive:false});
+// 要望対応：二本指同時操作に対応（片方で移動、片方で連射トグルなど）。
+// 移動を担当するタッチのidentifierだけを覚えておき、それ以外の新規タッチは
+// 画面下部の非移動領域なら個別にUI操作として処理する（移動トラッキングとは独立）
+let moveTouchId = null;
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(state==='playing' && !demoActive && t.clientY >= H*BOTTOM_UI_ZONE_START){
+      if(isPauseButtonHit(t.clientX,t.clientY)) togglePause();
+      else if(isFireToggleButtonHit(t.clientX,t.clientY)) toggleTouchAutoFire();
+      continue; // このタッチは移動用にはしない
+    }
+    if(moveTouchId===null){
+      moveTouchId = t.identifier;
+      pointerDown(t.clientX, t.clientY);
+    }
+  }
+},{passive:false});
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===moveTouchId) pointerMove(t.clientX, t.clientY);
+  }
+},{passive:false});
+function endMoveTouchIfMatches(e){
+  for(const t of e.changedTouches){
+    if(t.identifier===moveTouchId){ moveTouchId=null; pointerUp(); }
+  }
+}
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); endMoveTouchIfMatches(e); },{passive:false});
+canvas.addEventListener('touchcancel', e=>{ e.preventDefault(); endMoveTouchIfMatches(e); },{passive:false});
 canvas.addEventListener('mousedown',e=>pointerDown(e.clientX,e.clientY));
 canvas.addEventListener('mousemove',e=>pointerMove(e.clientX,e.clientY));
 canvas.addEventListener('mouseup',()=>pointerUp());
@@ -864,9 +893,9 @@ let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
 
 function initStars(){
   stars=[];
-  const STAR_SIZE = 0.75; // 2ポイント縮小（弾と混同しない小ささへ調整）
-  const STAR_COLORS = ['#b8f0ff','#ffb8f0','#fff8b0','#ffb0b0','#b0ffc0','#ffd0a0'];
-  const layers=[{n:16,speed:4,alphaBase:0.6},{n:12,speed:9,alphaBase:0.75},{n:8,speed:16,alphaBase:0.95}];
+  const STAR_SIZE = 0.55; // 要望対応：さらに縮小
+  const STAR_COLORS = ['#7be8ff','#ff7bea','#fff36b','#ff6b6b','#6bff9e','#ffb04a']; // 要望対応：彩度・明度を上げた鮮やかな配色に変更
+  const layers=[{n:16,speed:4,alphaBase:0.75},{n:12,speed:9,alphaBase:0.88},{n:8,speed:16,alphaBase:1.0}]; // 要望対応：明度（不透明度）を底上げ
   layers.forEach(L=>{
     for(let i=0;i<L.n;i++){
       stars.push({
@@ -1117,7 +1146,7 @@ function updateFormationAnchor(dt){
       }
     }
     // インベーダー仕様：残数が減るほど加速する（撃破ごとに線形加速し、残り1体で最速＝初速の8倍。要望対応で体感できるレベルに強化）
-    const STAGE1_MAX_SPEED_MUL = 2; // 要望対応：8倍は速すぎたため2倍に変更
+    const STAGE1_MAX_SPEED_MUL = 16; // 要望対応：2倍だと体感で遅かったため、元の8倍からさらに2倍の16倍に変更
     const totalForRamp = Math.max(1, stage0WaveInitialCount - 1);
     const kills = stage0WaveInitialCount - marchers.length;
     const speedMul = 1 + (STAGE1_MAX_SPEED_MUL - 1) * Math.min(1, kills / totalForRamp);
@@ -1738,7 +1767,9 @@ function updatePlayerMovement(dt){
 
 function updatePlayerFire(dt){
   const manualFireActive = (keyFireHeld || gpFireHeld) && !demoActive; // Z/ゲームパッドAによる明示的な発射
-  const autoFireActive = (pointerHeld || demoActive) && input.active; // タッチ/マウス/デモは従来通り自動連射
+  const autoFireActive = demoActive
+    ? input.active
+    : (pointerHeld && input.active && touchAutoFireEnabled); // 要望対応：連射トグルOFF中はタッチ/マウスでも自動連射しない
   if(autoFireActive || manualFireActive){
     if(demoActive){
       if(demoFireStopTimer>0){ demoFireStopTimer -= dt; return; } // 要望対応：時々撃たずに止まる
@@ -2020,7 +2051,7 @@ function draw(){
   else if(state==='playing'){
     drawGame();
     if(demoActive) drawDemoGameOver();
-    else { drawPauseButton(); drawFpsDisplay(); if(paused) drawPauseOverlay(); }
+    else { drawPauseButton(); drawFireToggleButton(); drawFpsDisplay(); if(paused) drawPauseOverlay(); }
   }
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
@@ -2036,6 +2067,14 @@ const BOTTOM_UI_ZONE_START = 0.9; // 画面下から1割を非移動領域に
 function isPauseButtonHit(cx,cy){
   return cx > W*0.02 && cx < W*0.20 && cy > H*BOTTOM_UI_ZONE_START && cy < H;
 }
+// 要望対応：連射ON/OFFトグル（タッチ専用）。キーボード/ゲームパッドは対象外（Z/Aボタンで
+// 個別に発射制御できるため、この問題が起きない）。タッチだけは接触中に強制的に自動連射される
+// 仕様のため、移動だけしたい場面で不利になる。トグルで自動連射を止められるようにする
+let touchAutoFireEnabled = true;
+function isFireToggleButtonHit(cx,cy){
+  return cx > W*0.22 && cx < W*0.40 && cy > H*BOTTOM_UI_ZONE_START && cy < H;
+}
+function toggleTouchAutoFire(){ touchAutoFireEnabled = !touchAutoFireEnabled; }
 function togglePause(){
   if(state!=='playing' || demoActive) return;
   paused = !paused;
@@ -2048,6 +2087,17 @@ function drawPauseButton(){
   ctx.fillRect(W*0.02, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
   ctx.fillStyle='#fff'; ctx.font=`${cell*0.8}px monospace`;
   ctx.fillText('止', W*0.11, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
+  ctx.restore();
+}
+// 要望対応：連射ON/OFFトグルボタンの描画（ONは緑系、OFFは灰色でひと目で分かるように）
+function drawFireToggleButton(){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle = touchAutoFireEnabled ? 'rgba(139,255,59,0.22)' : 'rgba(255,255,255,0.08)';
+  ctx.fillRect(W*0.22, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
+  ctx.fillStyle = touchAutoFireEnabled ? '#8aff3b' : '#888';
+  ctx.font=`${cell*0.8}px monospace`;
+  ctx.fillText('連', W*0.31, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
   ctx.restore();
 }
 // 要望対応：右下（非移動領域）に現在の実測FPSを表示（アラビア数字OK、デバッグ用に親切なため）
@@ -2072,11 +2122,11 @@ function drawPauseOverlay(){
 
 function drawStars(){
   ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font=`${cell*0.75}px monospace`;
   stars.forEach(s=>{
     const twinkle = 0.6 + 0.4*Math.sin(s.twinklePhase);
     ctx.globalAlpha = s.alphaBase * twinkle;
     ctx.fillStyle = s.color;
+    ctx.font=`${cell*s.size}px monospace`;
     ctx.fillText('・', gx(s.x), gy(s.y));
   });
   ctx.restore();
@@ -2214,6 +2264,10 @@ function drawGame(){
     if(bossActive && !b.isNormalBullet){
       const bossHue = (elapsed / 8) % 360;
       ctx.fillStyle = `hsl(${bossHue}, 100%, 75%)`;
+    }
+    // 要望対応：誘導弾（homing）は他の弾より明度を上げ、白に近い色で区別する
+    if(b.homing){
+      ctx.fillStyle = '#fff2f2';
     }
 
     ctx.beginPath();
