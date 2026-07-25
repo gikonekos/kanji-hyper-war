@@ -552,19 +552,83 @@ function recomputeKeyDir(){
   if(keyHeld){ if(!wasHeld && !pointerHeld){ input.downTime = performance.now(); } input.active = true; }
   else if(!pointerHeld){ input.active = false; }
 }
+
+// 要望対応：東方風操作（キーボード）＋ゲームパッド対応
+// Z＝ショット（押している間のみ発射、移動とは独立）、X＝ボム（＝緊急避難を1発で発動）、
+// Shift＝低速移動（押している間のみ、精密操作用）
+let keyFireHeld = false;
+let keySlowHeld = false;
+window.addEventListener('keydown', e=>{
+  if(state!=='playing' || demoActive) return;
+  if(e.code==='KeyZ'){ keyFireHeld = true; }
+  else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = true; }
+  else if(e.code==='KeyX'){ if(!keyXHeldPrev){ input.dodgeRequested = true; } keyXHeldPrev = true; }
+});
+let keyXHeldPrev = false;
+window.addEventListener('keyup', e=>{
+  if(e.code==='KeyZ'){ keyFireHeld = false; }
+  else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = false; }
+  else if(e.code==='KeyX'){ keyXHeldPrev = false; }
+});
+
+// ゲームパッド対応（Gamepad APIはイベントが無いため、毎フレームpollGamepad()でポーリングする）
+// A＝ショット、B＝ボム（緊急避難）、左スティック／十字キー＝移動（アナログ可）、
+// L1/R1/L2/R2/L3/R3など、それらしいボタンはすべて低速移動として扱う、Start＝ポーズ、X/Yは予約（未使用）
+const gpDir = {x:0, y:0}; // アナログの傾き量をそのまま保持（正規化しない）
+let gpFireHeld = false;
+let gpSlowHeld = false;
+let gpPrevBombBtn = false;
+let gpPrevStartBtn = false;
+const GAMEPAD_DEADZONE = 0.2;
+const GAMEPAD_SLOW_BUTTON_INDEXES = [4,5,6,7,10,11]; // L1,R1,L2,R2,L3,R3 相当
+function pollGamepad(){
+  const padsRaw = (navigator.getGamepads ? navigator.getGamepads() : []);
+  let gp = null;
+  for(let i=0;i<padsRaw.length;i++){ if(padsRaw[i]){ gp = padsRaw[i]; break; } }
+  gpDir.x = 0; gpDir.y = 0; gpFireHeld = false; gpSlowHeld = false;
+  if(!gp) return;
+  let ax = gp.axes[0]||0, ay = gp.axes[1]||0;
+  if(Math.hypot(ax,ay) < GAMEPAD_DEADZONE){ ax=0; ay=0; }
+  const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+  const startNow = btn(9);
+  if(startNow && !gpPrevStartBtn && (state==='playing') && !demoActive){ togglePause(); }
+  gpPrevStartBtn = startNow;
+  if(paused) return; // ポーズ中はStartボタンの解除判定以外はすべて無視
+  if(btn(14)) ax = -1; if(btn(15)) ax = 1; // 十字キー左右（デジタル、標準マッピング）
+  if(btn(12)) ay = -1; if(btn(13)) ay = 1; // 十字キー上下
+  gpDir.x = Math.max(-1,Math.min(1,ax)); gpDir.y = Math.max(-1,Math.min(1,ay));
+  if(state==='playing' && !demoActive){
+    gpFireHeld = btn(0); // Aボタン
+    gpSlowHeld = GAMEPAD_SLOW_BUTTON_INDEXES.some(i=>btn(i));
+    const bombNow = btn(1); // Bボタン
+    if(bombNow && !gpPrevBombBtn){ input.dodgeRequested = true; }
+    gpPrevBombBtn = bombNow;
+  }
+}
+
 // 不具合修正：keyDirを計算するだけで実際の移動目標(input.x/y)へ反映する処理が無く、
 // キー入力そのものでは自機が動かなかった。押し続けている間、自機の少し先に目標点を
-// 置き続けることで移動させる（毎フレーム呼び出す）
-// ↓↓↓ 要望対応：後々の調整用に、キーボード移動の速度・先読み距離をここにまとめておく ↓↓↓
+// 置き続けることで移動させる（毎フレーム呼び出す）。ゲームパッドのアナログスティックも
+// ここに統合し、傾き量（0〜1）に応じて速度を落とす
+// ↓↓↓ 要望対応：後々の調整用に、キーボード/ゲームパッド移動の速度・先読み距離をここにまとめておく ↓↓↓
 const KEY_MOVE_LOOKAHEAD = 1; // 目標点を自機の何マス先に置くか（大きいほど、離した瞬間のオーバーシュートが大きくなる）
-const KEY_MOVE_SPEED_CELLS_PER_30FPS = 0.5; // キーボード移動の最高速度（タッチ/マウスは別途2.0で固定）
+const KEY_MOVE_SPEED_CELLS_PER_30FPS = 0.5; // キーボード/ゲームパッド移動の最高速度（タッチ/マウスは別途2.0で固定）
+const SLOW_MOVE_SCALE = 0.5; // Shift/低速ボタン押下中の速度倍率
 // ↑↑↑ ここまで ↑↑↑
-function updateKeyboardMovement(){
-  if(!keyHeld || pointerHeld) return; // マウス/タッチ操作中はそちらを優先
-  const mag = Math.hypot(keyDir.x, keyDir.y) || 1;
-  const nx = keyDir.x/mag, ny = keyDir.y/mag;
+let usingDirectionalMove = false; // updatePlayerMovement側で速度計算に使う
+let directionalAnalogMag = 1;     // ゲームパッドの傾き量（0〜1）。キーボードは常に1
+function updateDirectionalMovement(){
+  usingDirectionalMove = false;
+  if(pointerHeld) return; // マウス/タッチ操作中はそちらを優先
+  const dx = keyDir.x + gpDir.x, dy = keyDir.y + gpDir.y;
+  const rawMag = Math.hypot(dx,dy);
+  if(rawMag < 0.05) return;
+  directionalAnalogMag = Math.min(1, rawMag);
+  const nx = dx/rawMag, ny = dy/rawMag;
   input.x = player.x + nx*KEY_MOVE_LOOKAHEAD;
   input.y = player.y + ny*KEY_MOVE_LOOKAHEAD;
+  input.active = true;
+  usingDirectionalMove = true;
 }
 
 // ============ アトラクトモード（無操作デモループ） ============
@@ -610,6 +674,16 @@ function pointerDown(cx,cy){
     hideAttractRanking();
     enterTitle();
     return; // このタップ自体はゲーム開始などには使わない
+  }
+  // 要望対応：ポーズ中はポーズボタンの再タップ（解除）以外は無視する
+  if(paused){
+    if(isPauseButtonHit(cx,cy)) togglePause();
+    return;
+  }
+  // 要望対応：プレイ中、画面下部の帯は「移動に使わない領域」。ポーズボタンのタップのみ受け付ける
+  if(state==='playing' && !demoActive && cy >= H*BOTTOM_UI_ZONE_START){
+    if(isPauseButtonHit(cx,cy)) togglePause();
+    return;
   }
   pointerHeld=true; input.active=true; input.downTime=performance.now();
   const p=toGrid(cx,cy); input.x=p.gx; input.y=p.gy;
@@ -1568,8 +1642,7 @@ function updateDodge(){
 let playerTopLocked = false; // 要望対応：一番上に到達したら、一番下に着くまで上方向へ動けなくする
 function updatePlayerMovement(dt){
   if(input.active){
-    const usingKeyboardMove = keyHeld && !pointerHeld;
-    const TOUCH_OFFSET_Y = (demoActive || usingKeyboardMove) ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモ・キーボード操作では適用しない
+    const TOUCH_OFFSET_Y = (demoActive || usingDirectionalMove) ? 0 : 1.2; // タッチ/クリック位置より少し上に表示（指で自機が隠れる問題の対策）。デモ・キーボード/ゲームパッド操作では適用しない
     const tx=Math.max(0.5,Math.min(cols-0.5,input.x));
     let tyRaw=Math.max(0.5,Math.min(rows-0.5,input.y-TOUCH_OFFSET_Y));
     if(player.y<=1.0) playerTopLocked = true; // 一番上に到達
@@ -1579,9 +1652,13 @@ function updatePlayerMovement(dt){
     const dist=Math.hypot(dx,dy);
     // ワープ修正：瞬間移動ではなく「ものすごい速さで到達」させる。30fps基準で速度上限を設定
     // デモ中は要望対応でゆっくり滑らかに動かす（20ドット程度の移動が一瞬でスナップしないように）
-    // 要望対応：キーボード操作時のみ移動速度を変更（タッチ/マウスは従来通り2.0固定）。
-    // 調整したい場合はファイル冒頭付近のKEY_MOVE_SPEED_CELLS_PER_30FPSを変更してください
-    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : (usingKeyboardMove ? KEY_MOVE_SPEED_CELLS_PER_30FPS : 2.0);
+    // 要望対応：キーボード/ゲームパッド操作時のみ移動速度を変更（タッチ/マウスは従来通り2.0固定）。
+    // ゲームパッドのアナログ傾き量（0〜1）と、Shift/低速ボタン押下中はさらに速度を落とす。
+    // 調整したい場合はファイル冒頭付近のKEY_MOVE_SPEED_CELLS_PER_30FPS等を変更してください
+    const slowActive = keySlowHeld || gpSlowHeld;
+    const analogMag = usingDirectionalMove ? directionalAnalogMag : 1;
+    const directionalSpeed = KEY_MOVE_SPEED_CELLS_PER_30FPS * analogMag * (slowActive ? SLOW_MOVE_SCALE : 1);
+    const MAX_SPEED_CELLS_PER_30FPS = demoActive ? 0.4 : (usingDirectionalMove ? directionalSpeed : 2.0);
     const maxStep = MAX_SPEED_CELLS_PER_30FPS * (dt/(1000/30));
     if(dist<=maxStep || dist===0){
       player.x=tx; player.y=ty;
@@ -1594,12 +1671,14 @@ function updatePlayerMovement(dt){
 }
 
 function updatePlayerFire(dt){
-  if(input.active){
+  const manualFireActive = (keyFireHeld || gpFireHeld) && !demoActive; // Z/ゲームパッドAによる明示的な発射
+  const autoFireActive = (pointerHeld || demoActive) && input.active; // タッチ/マウス/デモは従来通り自動連射
+  if(autoFireActive || manualFireActive){
     if(demoActive){
       if(demoFireStopTimer>0){ demoFireStopTimer -= dt; return; } // 要望対応：時々撃たずに止まる
       if(Math.random()<0.001) demoFireStopTimer = 250+Math.random()*400;
     }
-    const held = performance.now()-input.downTime;
+    const held = manualFireActive ? 200 : (performance.now()-input.downTime); // Z/Aボタンは押した瞬間から即座に発射（ディレイなし）
     if(held>=200){
       player.fireTimer -= dt;
       if(player.fireTimer<=0){ pBullets.push({x:player.x,y:player.y-0.6,vx:0,vy:-7}); player.fireTimer=140; SFX.shot(); }
@@ -1837,7 +1916,7 @@ function updateLogic(dt){
   updateStageGrace(dt);
   if(updateBossProgression()) return;
   updateDodge();
-  updateKeyboardMovement();
+  updateDirectionalMovement();
   updatePlayerMovement(dt);
   updatePlayerFire(dt);
   updateEnemies(dt);
@@ -1849,18 +1928,71 @@ function updateLogic(dt){
   updateStars(dt);
 }
 
-let renderAccum=0; const RENDER_STEP=1000/30;
+// 要望対応：低スペック端末を基準に描画30fpsとしていたが、実際に処理落ちしていないか
+// （直近の実測フレーム時間）を見て、余裕があれば60fpsへ、処理落ちの兆候があれば30fpsへ
+// 自動で切り替える（機種名でなく実測値で判断するため、発熱や他アプリの負荷にも追従できる）
+let renderAccum=0;
+let RENDER_STEP=1000/30;
+const FPS_SAMPLE_SIZE = 60; // 直近60フレーム分のdtで判定
+const fpsSamples = [];
+const FPS_UPGRADE_MS = 17.5;   // この値を下回る（＝60fps相当で余裕がある）状態が続いたら60fpsへ
+const FPS_DOWNGRADE_MS = 22;   // この値を上回る（＝処理落ちの兆候）状態が続いたら30fpsへ
+function trackFrameTiming(dt){
+  fpsSamples.push(dt);
+  if(fpsSamples.length > FPS_SAMPLE_SIZE) fpsSamples.shift();
+  if(fpsSamples.length < FPS_SAMPLE_SIZE) return; // サンプルが揃うまでは判定しない
+  const avg = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
+  if(RENDER_STEP > 1000/59 && avg < FPS_UPGRADE_MS){ RENDER_STEP = 1000/60; }
+  else if(RENDER_STEP < 1000/31 && avg > FPS_DOWNGRADE_MS){ RENDER_STEP = 1000/30; }
+}
 
 function draw(){
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   drawStars();
   if(state==='title') drawTitle();
   else if(state==='opening') drawOpening();
-  else if(state==='playing'){ drawGame(); if(demoActive) drawDemoGameOver(); }
+  else if(state==='playing'){
+    drawGame();
+    if(demoActive) drawDemoGameOver();
+    else { drawPauseButton(); if(paused) drawPauseOverlay(); }
+  }
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
   else if(state==='staffroll') drawStaffRoll();
   else if(state==='demoover'){ drawGame(); drawDemoGameOver(); }
+}
+
+// 要望対応：ポーズ機能。画面下部の帯（BOTTOM_UI_ZONE_START〜下端）は移動に使わない領域とし、
+// その左下にポーズボタン（「止」）を配置する。ポーズ中は音楽もWeb Audio APIのsuspend/resumeで
+// 時刻ごと綺麗に止める（予約済みの演奏も含めて正確に再開できる）
+let paused = false;
+const BOTTOM_UI_ZONE_START = 0.9; // 画面下から1割を非移動領域に
+function isPauseButtonHit(cx,cy){
+  return cx > W*0.02 && cx < W*0.20 && cy > H*BOTTOM_UI_ZONE_START && cy < H;
+}
+function togglePause(){
+  if(state!=='playing' || demoActive) return;
+  paused = !paused;
+  if(actx){ if(paused) actx.suspend(); else actx.resume(); }
+}
+function drawPauseButton(){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(255,255,255,0.15)';
+  ctx.fillRect(W*0.02, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
+  ctx.fillStyle='#fff'; ctx.font=`${cell*0.8}px monospace`;
+  ctx.fillText('止', W*0.11, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
+  ctx.restore();
+}
+function drawPauseOverlay(){
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.font=`bold ${cell*1.5}px monospace`;
+  ctx.fillText('一時停止', W/2, H*0.45);
+  ctx.fillStyle='#88ff88'; ctx.font=`${cell*0.55}px monospace`;
+  ctx.fillText('もう一度「止」またはStartで再開', W/2, H*0.55);
+  ctx.restore();
 }
 
 function drawStars(){
@@ -2125,8 +2257,12 @@ function drawResult(){
 
 function frame(now){
   const dt=Math.min(50, now-lastTime); lastTime=now;
-  logicAccum += dt;
-  while(logicAccum>=LOGIC_STEP){ updateLogic(LOGIC_STEP); logicAccum-=LOGIC_STEP; }
+  trackFrameTiming(dt);
+  pollGamepad();
+  if(!paused){
+    logicAccum += dt;
+    while(logicAccum>=LOGIC_STEP){ updateLogic(LOGIC_STEP); logicAccum-=LOGIC_STEP; }
+  }
   renderAccum += dt;
   if(renderAccum>=RENDER_STEP){ draw(); renderAccum=0; }
   requestAnimationFrame(frame);
