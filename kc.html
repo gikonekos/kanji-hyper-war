@@ -550,12 +550,38 @@ function beepTone(freq,dur,gain){
   g.gain.linearRampToValueAtTime(0.0001,actx.currentTime+dur);
   o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+dur);
 }
+// 要望対応：ボス警告表示（2秒間）に合わせて鳴らす、ダライアス風の警告サイレン。
+// 音階が上がって(RISE_MS)、その1.5倍の時間で下がる(FALL_MS)を1周期とし、これを3回繰り返す。
+// 合計1800ms＝警告表示の2000msよりわずかに早く終わる
+function playBossWarningSiren(){
+  if(!actx) return;
+  const RISE_MS = 240, FALL_MS = 360, CYCLES = 3;
+  const LOW = 440, HIGH = 880;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type='square';
+  const t0 = actx.currentTime;
+  let t = t0;
+  o.frequency.setValueAtTime(LOW, t);
+  g.gain.setValueAtTime(0.16, t);
+  for(let i=0;i<CYCLES;i++){
+    o.frequency.linearRampToValueAtTime(HIGH, t + RISE_MS/1000);
+    t += RISE_MS/1000;
+    o.frequency.linearRampToValueAtTime(LOW, t + FALL_MS/1000);
+    t += FALL_MS/1000;
+  }
+  g.gain.setValueAtTime(0.16, Math.max(t0, t-0.05));
+  g.gain.linearRampToValueAtTime(0.0001, t);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t0); o.stop(t+0.02);
+}
 const SFX = {
   shot(){ noiseBurst(0.05,2200,3200,0.1); },
   hit(){ noiseBurst(0.08,900,400,0.16); },
   destroy(){ noiseBurst(0.18,700,120,0.2); },
   playerHit(){ noiseBurst(0.25,300,80,0.26); },
   warning(){ beepTone(880,0.15,0.22); setTimeout(()=>beepTone(880,0.15,0.22),260); setTimeout(()=>beepTone(880,0.15,0.22),520); },
+  bossWarningSiren(){ playBossWarningSiren(); },
+  decide(){ beepTone(660,0.08,0.22); setTimeout(()=>beepTone(880,0.14,0.24),70); },
   dodge(){ noiseBurst(0.5,1500,100,0.22); }
 };
 
@@ -715,6 +741,7 @@ function pointerDown(cx,cy){
   input.lastTapTime=now;
   if(input.tapCount>=dodgeRequiredTaps()){ input.dodgeRequested=true; input.tapCount=0; }
   if(state==='title'){
+    if(titleDeciding) return; // 要望対応：決定演出中の多重タップを無視
     // タッチ端末向けの隠しコマンド代替：著作権表記を16回連続タップ
     const copyrightHit = cy > H*0.8 && cy < H*1.0 && cx > W*0.1 && cx < W*0.9;
     if(copyrightHit){
@@ -727,17 +754,21 @@ function pointerDown(cx,cy){
       if(invincibleTapCount>=INVINCIBLE_TAP_REQUIRED){ invincibleMode = true; invincibleTapCount = 0; }
       return; // ゲーム開始はしない
     }
-    // 要望対応：モード選択を「1回目タップで選択、2回目タップ（同じ場所でもどこでも）で開始」の2段階に。
-    // キーボード（左右で選択→他キーで開始）と挙動を揃える
-    if(!titleModeConfirmed){
-      if(cy > H*0.585 && cy < H*0.665){
-        if(cx > W*0.06 && cx < W*0.48){ gameMode='timeattack'; }
-        else if(cx > W*0.52 && cx < W*0.94){ gameMode='unlimited'; }
-      }
-      titleModeConfirmed = true; // モード領域外のタップでも、現在のモードのまま選択確定とする
+    // 要望対応：別の選択肢をタップしたら選択が移動するだけ（開始しない）。
+    // 同じ選択肢をもう一度タップしたら決定（光って点滅＋矩形波SFX→開始）。
+    // ボタン領域外のタップは、初回は選択確定のみ、2回目以降は現在の選択で決定
+    const onTimeattackBtn = cy > H*0.585 && cy < H*0.665 && cx > W*0.06 && cx < W*0.48;
+    const onUnlimitedBtn  = cy > H*0.585 && cy < H*0.665 && cx > W*0.52 && cx < W*0.94;
+    if(onTimeattackBtn || onUnlimitedBtn){
+      const tappedMode = onTimeattackBtn ? 'timeattack' : 'unlimited';
+      if(titleModeConfirmed && tappedMode===gameMode){ confirmTitleModeAndStart(); return; }
+      gameMode = tappedMode;
+      titleModeConfirmed = true;
       return;
     }
-    startGame();
+    if(titleModeConfirmed){ confirmTitleModeAndStart(); return; }
+    titleModeConfirmed = true; // モード領域外の初回タップは、現在のモードのまま選択確定のみ
+    return;
   }
   else if(state==='result'){
     if(resultReason==='clear'){ startStaffRoll(); }
@@ -782,6 +813,7 @@ let konamiProgress = 0;
 window.addEventListener('keydown', e=>{
   if(state!=='title'){ konamiProgress = 0; return; }
   if(attractMode) return;
+  if(titleDeciding) return; // 要望対応：決定演出中の多重入力を無視
 
   if(e.code === KONAMI_SEQUENCE[konamiProgress]){
     konamiProgress++;
@@ -798,11 +830,21 @@ window.addEventListener('keydown', e=>{
     return;
   }
   ensureAudio();
-  startGame();
+  confirmTitleModeAndStart();
 });
 
 let state='title';
 let titleModeConfirmed = false; // 要望対応：タッチのモード選択を「1回目タップで選択、2回目タップで開始」の2段階にするためのフラグ
+let titleDecideFlashUntil = 0; // 要望対応：決定時に光って点滅させるための終了時刻（performance.now基準）
+const TITLE_DECIDE_FLASH_MS = 220;
+let titleDeciding = false; // 決定演出中の多重発火防止
+function confirmTitleModeAndStart(){
+  if(titleDeciding) return;
+  titleDeciding = true;
+  SFX.decide();
+  titleDecideFlashUntil = performance.now() + TITLE_DECIDE_FLASH_MS;
+  setTimeout(()=>{ titleDeciding=false; startGame(); }, TITLE_DECIDE_FLASH_MS);
+}
 function enterTitle(){ state='title'; titleModeConfirmed=false; } // タイトルへ遷移する処理を一本化（毎回フラグをリセットするため）
 let elapsed=0;
 const GAME_DURATION=180000;
@@ -1075,7 +1117,7 @@ function updateFormationAnchor(dt){
       }
     }
     // インベーダー仕様：残数が減るほど加速する（撃破ごとに線形加速し、残り1体で最速＝初速の8倍。要望対応で体感できるレベルに強化）
-    const STAGE1_MAX_SPEED_MUL = 8;
+    const STAGE1_MAX_SPEED_MUL = 2; // 要望対応：8倍は速すぎたため2倍に変更
     const totalForRamp = Math.max(1, stage0WaveInitialCount - 1);
     const kills = stage0WaveInitialCount - marchers.length;
     const speedMul = 1 + (STAGE1_MAX_SPEED_MUL - 1) * Math.min(1, kills / totalForRamp);
@@ -1103,6 +1145,7 @@ function triggerBossSequence(){
   enemies = [];
   eBullets = [];
   bossClearTimer = 2000;
+  SFX.bossWarningSiren(); // 要望対応：ダライアス風の警告サイレンを警告表示の開始と同時に鳴らす
   let candidates = BOSS_POOL.filter(b=>!bossCharsUsedThisRun.has(b[0]));
   if(candidates.length===0) candidates = BOSS_POOL; // 万一枯渇したらリセット（通常は3ステージ分＜6種なので発生しない）
   let pick = candidates[Math.floor(Math.random()*candidates.length)];
@@ -1977,7 +2020,7 @@ function draw(){
   else if(state==='playing'){
     drawGame();
     if(demoActive) drawDemoGameOver();
-    else { drawPauseButton(); if(paused) drawPauseOverlay(); }
+    else { drawPauseButton(); drawFpsDisplay(); if(paused) drawPauseOverlay(); }
   }
   else if(state==='warning'){ drawGame(); drawWarning(); }
   else if(state==='result'){ drawGame(); drawResult(); }
@@ -2005,6 +2048,15 @@ function drawPauseButton(){
   ctx.fillRect(W*0.02, H*BOTTOM_UI_ZONE_START, W*0.18, H*(1-BOTTOM_UI_ZONE_START));
   ctx.fillStyle='#fff'; ctx.font=`${cell*0.8}px monospace`;
   ctx.fillText('止', W*0.11, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
+  ctx.restore();
+}
+// 要望対応：右下（非移動領域）に現在の実測FPSを表示（アラビア数字OK、デバッグ用に親切なため）
+function drawFpsDisplay(){
+  const fps = fpsSamples.length>0 ? Math.round(1000/(fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length)) : Math.round(1000/RENDER_STEP);
+  ctx.save();
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.font=`${cell*0.45}px monospace`;
+  ctx.fillText(fps+' fps', W*0.98, H*(BOTTOM_UI_ZONE_START + (1-BOTTOM_UI_ZONE_START)/2));
   ctx.restore();
 }
 function drawPauseOverlay(){
@@ -2036,14 +2088,16 @@ function drawTitle(){
   ctx.fillText('漢字超戦', W/2, H*0.38);
   ctx.fillStyle='#ffd23b'; ctx.font=`${cell*0.9}px monospace`;
   ctx.fillText('タップしてスタート', W/2, H*0.55);
-  // 要望対応：キーボード選択中のモードを背景ハイライトで明示
+  // 要望対応：キーボード/タッチで選択中のモードを背景ハイライトで明示。決定した瞬間は光って点滅する
   ctx.save();
   const hlY = H*0.625 - cell*0.4, hlH = cell*0.8;
+  const flashing = performance.now() < titleDecideFlashUntil;
+  const flashPhase = flashing ? (Math.sin((titleDecideFlashUntil-performance.now())*0.06) + 1)/2 : 0; // 点滅
   if(gameMode==='timeattack'){
-    ctx.fillStyle='rgba(59,176,255,0.22)';
+    ctx.fillStyle = flashing ? `rgba(255,255,255,${0.35+0.5*flashPhase})` : 'rgba(59,176,255,0.22)';
     ctx.fillRect(W*0.06, hlY, W*0.42, hlH);
   } else {
-    ctx.fillStyle='rgba(59,255,176,0.22)';
+    ctx.fillStyle = flashing ? `rgba(255,255,255,${0.35+0.5*flashPhase})` : 'rgba(59,255,176,0.22)';
     ctx.fillRect(W*0.52, hlY, W*0.42, hlH);
   }
   ctx.restore();
