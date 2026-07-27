@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv71';
+const KCV_VERSION = 'kcv72';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -1055,6 +1055,10 @@ let score=0n, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMo
 const player={x:cols/2,y:rows-2,hp:5,maxHp:5,invuln:0,fireTimer:0};
 let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
 
+// ステージ3以降のマトリックス風背景用文字プール（半角カタカナ＋英数字）
+const MATRIX_CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const MATRIX_GREEN = '#00ff41'; // マトリックス風の緑
+
 function initStars(){
   stars=[];
   const STAR_SIZE = 0.55; // 要望対応：さらに縮小
@@ -1067,7 +1071,9 @@ function initStars(){
         size:STAR_SIZE, alphaBase:L.alphaBase,
         color: STAR_COLORS[Math.floor(Math.random()*STAR_COLORS.length)],
         twinklePhase: Math.random()*Math.PI*2,
-        twinkleSpeed: 1.5+Math.random()*2.5
+        twinkleSpeed: 1.5+Math.random()*2.5,
+        ch: '・', // 通常は中点。ステージ3以降はMATRIX_CHARSに切り替え
+        changeTimer: 200 + Math.random()*800 // 文字変化までの残り時間(ms)
       });
     }
   });
@@ -2215,7 +2221,22 @@ function updateEffects(dt){
 }
 
 function updateStars(dt){
-  stars.forEach(s=>{ s.y += s.speed*dt/1000; s.twinklePhase += s.twinkleSpeed*dt/1000; if(s.y>rows){ s.y=-1; s.x=Math.random()*cols; } });
+  const matrixMode = (stageIndex >= 2);
+  stars.forEach(s=>{
+    s.y += s.speed*dt/1000;
+    s.twinklePhase += s.twinkleSpeed*dt/1000;
+    if(s.y>rows){ s.y=-1; s.x=Math.random()*cols; }
+    // ステージ3以降：文字をランダムに変化させる（マトリックス風）
+    if(matrixMode){
+      s.changeTimer -= dt;
+      if(s.changeTimer <= 0){
+        s.ch = MATRIX_CHARS[Math.floor(Math.random()*MATRIX_CHARS.length)];
+        s.changeTimer = 150 + Math.random()*600;
+      }
+    } else {
+      s.ch = '・';
+    }
+  });
 }
 
 function updateLogic(dt){
@@ -2484,12 +2505,15 @@ function drawPauseOverlay(){
 
 function drawStars(){
   ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+  const matrixMode = (stageIndex >= 2);
   stars.forEach(s=>{
     const twinkle = 0.6 + 0.4*Math.sin(s.twinklePhase);
     ctx.globalAlpha = s.alphaBase * twinkle;
-    ctx.fillStyle = s.color;
-    ctx.font=`${cell*s.size}px monospace`;
-    ctx.fillText('・', gx(s.x), gy(s.y));
+    ctx.fillStyle = matrixMode ? MATRIX_GREEN : s.color;
+    // マトリックス文字は少し大きめにして視認性を確保
+    const sizeMul = matrixMode ? 0.85 : s.size;
+    ctx.font=`${cell*sizeMul}px monospace`;
+    ctx.fillText(s.ch || '・', gx(s.x), gy(s.y));
   });
   ctx.restore();
 }
