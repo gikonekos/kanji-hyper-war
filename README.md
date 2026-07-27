@@ -1,8 +1,14 @@
 # 漢字超戦（かんじちょうせん）Kanji Hyper War.
 
+![title](image/kc-title.png)
+
 文字・UTF-8記号のみ（画像・絵文字不使用）のブラウザ向けシューティングゲーム。HTML5/Canvas実装。
 
 グローバルランキング用に hashes.txt.gz を必要とする。
+
+![stage01](image/kc-stage01.png)
+
+![boss01](image/kc-boss01.png)
 
 ▶ [motoikenkichi.com](https://motoikenkichi.com/) からゲームプレイでプレイ可能
 
