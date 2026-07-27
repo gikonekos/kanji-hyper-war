@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv71</title>
+<title>漢字超戦 v73</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv72';
+const KCV_VERSION = 'kcv73';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -665,7 +665,11 @@ window.addEventListener('keydown', e=>{ for(const h of keydownHandlers) h(e); },
 const keyupHandlers = [];
 window.addEventListener('keyup', e=>{ for(const h of keyupHandlers) h(e); });
 // ①ゲームで使うキーのブラウザ既定動作（ページスクロール等）を打ち消す
+// 不具合修正：ランキング名入力中はpreventDefaultしない（A/S/D/W/Z/X等が入力できなくなる問題）
 keydownHandlers.push(e=>{
+  if(rankingFormActive) return;
+  const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+  if(tag === 'INPUT' || tag === 'TEXTAREA') return;
   if(GAME_KEY_CODES.has(e.code)) e.preventDefault();
 });
 function recomputeKeyDir(){
@@ -688,6 +692,7 @@ function recomputeKeyDir(){
 // いずれの画面でも発生。キーボードだけ題名画面に戻れない状態だった）。
 // このハンドラで画面を送ったイベントは「消費済み」と印を付け、後段では無視させる
 keydownHandlers.push(e=>{
+  if(rankingFormActive) return; // ランキング名入力中は画面送りしない
   if(state==='opening' && hasSeenOpening()){ enterTitle(); e.__kcConsumed = true; }
   else if(state==='result'){
     if(resultReason==='clear'){ startStaffRoll(); }
@@ -727,6 +732,7 @@ function handleBombPress(source){
 }
 // ③戦闘中のZ（発射）／Shift（低速）／X（緊急避難）
 keydownHandlers.push(e=>{
+  if(rankingFormActive) return;
   if(state!=='playing' || demoActive) return;
   if(e.code==='KeyZ'){ keyFireHeld = true; }
   else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = true; }
@@ -977,6 +983,7 @@ canvas.addEventListener('mouseup',()=>pointerUp());
 // 動きに統一する（移動キーとして処理するのはやめる）
 // ④移動キー（矢印／WASD）の押下状態を管理
 keydownHandlers.push(e=>{
+  if(rankingFormActive) return;
   if(MOVE_KEY_VECTORS[e.code] && state==='playing'){
     if(attractMode || demoActive){ interruptAttractMode(); return; }
     keysHeld.add(e.code); recomputeKeyDir();
@@ -998,6 +1005,7 @@ let konamiProgress = 0;
 keydownHandlers.push(e=>{
   // 不具合修正：②で画面を送った直後の同一イベントでは反応しない（題名に留まる）
   if(e.__kcConsumed){ konamiProgress = 0; return; }
+  if(rankingFormActive) return;
   if(state!=='title'){ konamiProgress = 0; return; }
   if(attractMode) return;
   if(titleDeciding) return; // 要望対応：決定演出中の多重入力を無視
