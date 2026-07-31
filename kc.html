@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 v74</title>
+<title>漢字超戦 kcv75</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv74';
+const KCV_VERSION = 'kcv75';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -120,6 +120,7 @@ function resize(){
     player.y = player.y/oldRows*rows;
   }
   initStars();
+  if(stageIndex >= 2 && !warpActive) initMatrixStreams(); // ステージ3以降でリサイズされたらMatrixも再構築
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', resize);
@@ -480,7 +481,7 @@ function scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats){
     stop(){
       stopped=true;
       if(watchdog) clearInterval(watchdog);
-      try{ master.disconnect(); }catch(e){}
+      try{ master.disconnect(); }catch(_){}
     }
   };
 }
@@ -542,7 +543,7 @@ let actx=null;
 let currentSong=null;
 function ensureAudio(){
   if(!actx){
-    try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+    try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(_){ return; }
   }
   // iOS/iPadSafari対策：AudioContextはユーザー操作（タップ）の中でresumeしないと鳴らない
   if(actx && actx.state === 'suspended'){
@@ -555,7 +556,7 @@ function ensureAudio(){
       const s = actx.createBufferSource();
       s.buffer=b; s.connect(actx.destination); s.start(0);
       actx.__unlocked = true;
-    }catch(e){}
+    }catch(_){}
   }
 }
 function stopSong(){ if(currentSong){ currentSong.stop(); currentSong=null; } }
@@ -665,7 +666,7 @@ window.addEventListener('keydown', e=>{ for(const h of keydownHandlers) h(e); },
 const keyupHandlers = [];
 window.addEventListener('keyup', e=>{ for(const h of keyupHandlers) h(e); });
 // ①ゲームで使うキーのブラウザ既定動作（ページスクロール等）を打ち消す
-// 不具合修正：ランキング名入力中はpreventDefaultしない（A/S/D/W/Z/X等が入力できなくなる問題）
+// 不具合修正（Grok kcv73）：ランキング名入力中はpreventDefaultしない（A/S/D/W/Z/X等が入力できなくなる問題）
 keydownHandlers.push(e=>{
   if(rankingFormActive) return;
   const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
@@ -691,8 +692,11 @@ function recomputeKeyDir(){
 // 受け取ってしまい、題名に留まらずそのままゲームが始まっていた（オープニング・全滅・時間切れの
 // いずれの画面でも発生。キーボードだけ題名画面に戻れない状態だった）。
 // このハンドラで画面を送ったイベントは「消費済み」と印を付け、後段では無視させる
+// スクリーンショット等の修飾キー・PrintScreenは「任意のキーで画面送り」から除外する
+const ANYKEY_EXCLUDE = new Set(['AltLeft','AltRight','ControlLeft','ControlRight','ShiftLeft','ShiftRight','PrintScreen','MetaLeft','MetaRight']);
 keydownHandlers.push(e=>{
-  if(rankingFormActive) return; // ランキング名入力中は画面送りしない
+  if(rankingFormActive) return; // 不具合修正（Grok kcv73）：ランキング名入力中は画面送りしない
+  if(ANYKEY_EXCLUDE.has(e.code)) return; // スクショ操作でゲームが誤動作しないよう除外
   if(state==='opening' && hasSeenOpening()){ enterTitle(); e.__kcConsumed = true; }
   else if(state==='result'){
     if(resultReason==='clear'){ startStaffRoll(); }
@@ -732,7 +736,7 @@ function handleBombPress(source){
 }
 // ③戦闘中のZ（発射）／Shift（低速）／X（緊急避難）
 keydownHandlers.push(e=>{
-  if(rankingFormActive) return;
+  if(rankingFormActive) return; // 不具合修正（Grok kcv73）
   if(state!=='playing' || demoActive) return;
   if(e.code==='KeyZ'){ keyFireHeld = true; }
   else if(e.code==='ShiftLeft' || e.code==='ShiftRight'){ keySlowHeld = true; }
@@ -778,7 +782,9 @@ function pollGamepad(){
   let gp = null;
   for(let i=0;i<padsRaw.length;i++){ if(padsRaw[i]){ gp = padsRaw[i]; break; } }
   if(!gp) return;
-  let ax = gp.axes[0]||0, ay = gp.axes[1]||0;
+  // 不具合修正：一部の非標準コントローラでgp.axesがnull/undefined/長さ0の場合TypeErrorになっていた。
+  // これが「たまに変な動きになる」報告の真因候補。optional chainingで安全に取得する
+  let ax = (gp.axes?.[0]) || 0, ay = (gp.axes?.[1]) || 0;
   if(Math.hypot(ax,ay) < GAMEPAD_DEADZONE){ ax=0; ay=0; }
   const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
   const startNow = btn(9);
@@ -841,7 +847,6 @@ const ATTRACT_TITLE_MS = 10000; // 要望対応：30秒→10秒
 const ATTRACT_RANKING_MS = 10000; // 要望対応：30秒→10秒
 const ATTRACT_DEMO_OVER_MS = 1000;
 let demoActive = false;
-let demoMoveTimer = 0;
 let demoDirAngle = 0; // デモの持続移動方向（慣性用）
 let demoPauseTimer = 0; // 「狙いを定める」演出用の一時停止
 let demoFireStopTimer = 0; // 要望対応：デモ中、弾を時々打たずに止める演出用
@@ -983,7 +988,7 @@ canvas.addEventListener('mouseup',()=>pointerUp());
 // 動きに統一する（移動キーとして処理するのはやめる）
 // ④移動キー（矢印／WASD）の押下状態を管理
 keydownHandlers.push(e=>{
-  if(rankingFormActive) return;
+  if(rankingFormActive) return; // 不具合修正（Grok kcv73）
   if(MOVE_KEY_VECTORS[e.code] && state==='playing'){
     if(attractMode || demoActive){ interruptAttractMode(); return; }
     keysHeld.add(e.code); recomputeKeyDir();
@@ -1005,7 +1010,8 @@ let konamiProgress = 0;
 keydownHandlers.push(e=>{
   // 不具合修正：②で画面を送った直後の同一イベントでは反応しない（題名に留まる）
   if(e.__kcConsumed){ konamiProgress = 0; return; }
-  if(rankingFormActive) return;
+  if(rankingFormActive) return; // 不具合修正（Grok kcv73）
+  if(ANYKEY_EXCLUDE.has(e.code)) return; // スクショキーで誤起動しないよう除外
   if(state!=='title'){ konamiProgress = 0; return; }
   if(attractMode) return;
   if(titleDeciding) return; // 要望対応：決定演出中の多重入力を無視
@@ -1063,9 +1069,123 @@ let score=0n, combo=0, comboMax=0, resultReason='', clearTimeMs=0, runUsedFreeMo
 const player={x:cols/2,y:rows-2,hp:5,maxHp:5,invuln:0,fireTimer:0};
 let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
 
-// ステージ3以降のマトリックス風背景用文字プール（半角カタカナ＋英数字）
-const MATRIX_CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const MATRIX_GREEN = '#00ff41'; // マトリックス風の緑
+// ============ Matrix rain / ワープ演出 ============
+// ステージ3突入時：3秒のワープ演出（中心から放射状に射出） → Matrixデジタルレイン
+// Matrix文字プール：半角カタカナ＋漢字（ゲームとの世界観を合わせる）
+const MATRIX_RAIN_CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ一二三四五六七八九十大小火水木金電龍'.split('');
+function _rmc(){ return MATRIX_RAIN_CHARS[Math.floor(Math.random()*MATRIX_RAIN_CHARS.length)]; }
+
+let matrixStreams = [];
+function _makeStream(px, charPx, randomY){
+  const len = 6 + Math.floor(Math.random()*16);     // ストリームの長さ（文字数）
+  const spd = (1.8 + Math.random()*5.5) * charPx;   // pixel/sec
+  const hy  = randomY ? Math.random()*(H + len*charPx) - len*charPx
+                      : -(len*charPx + Math.random()*H*0.4);
+  return { px, charPx, hy, spd, len,
+           chars: Array.from({length:len}, _rmc),
+           cTimer: 60 + Math.random()*120 }; // 文字変化タイマー(ms)
+}
+function initMatrixStreams(){
+  matrixStreams = [];
+  const cw = Math.max(8, cell * 0.82);              // 1カラムの幅（px）
+  const n  = Math.ceil(W / cw) + 1;
+  for(let i=0; i<n; i++) matrixStreams.push(_makeStream(i*cw + cw*0.5, cw, true));
+}
+function updateMatrixStreams(dt){
+  matrixStreams.forEach(s=>{
+    s.hy += s.spd * dt/1000;
+    s.cTimer -= dt;
+    if(s.cTimer <= 0){
+      s.chars[Math.floor(Math.random()*s.len)] = _rmc();
+      s.cTimer = 50 + Math.random()*110;
+    }
+    if(s.hy - s.len*s.charPx > H + s.charPx){
+      // 画面外へ抜けたらリセット（上端外から再スタート）
+      s.len = 6 + Math.floor(Math.random()*16);
+      s.spd = (1.8 + Math.random()*5.5) * s.charPx;
+      s.hy  = -(s.len*s.charPx) - Math.random()*H*0.5;
+      s.chars = Array.from({length:s.len}, _rmc);
+    }
+  });
+}
+function drawMatrixStreams(){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const fs = Math.max(8, cell * 0.8);
+  ctx.font = `${fs}px monospace`;
+  matrixStreams.forEach(s=>{
+    for(let i=0; i<s.len; i++){
+      const py = s.hy - i*s.charPx;
+      if(py < -s.charPx || py > H + s.charPx) continue;
+      let alpha, color;
+      if(i === 0){         color='#e0ffe0'; alpha=1.0; }                           // 先頭：白みがかった明るい緑
+      else if(i <= 2){     color='#00ff41'; alpha=1.0 - i*0.08; }                 // 直後：明るい緑
+      else {               color='#00cc33'; alpha=Math.max(0.05, 0.85 - (i/s.len)*0.85); } // トレイル：暗い緑へ減衰
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fillText(s.chars[i], s.px, py);
+    }
+  });
+  ctx.globalAlpha=1; ctx.restore();
+}
+
+// ワープ演出（ステージ3突入時：奥から手前に星が展開）
+let warpActive = false;
+let warpTimer  = 0;
+const WARP_DURATION_MS = 3000;
+let warpParticles = [];
+function startWarpEffect(){
+  warpActive = true;
+  warpTimer  = 0;
+  warpParticles = [];
+  const N = 100;
+  for(let i=0; i<N; i++){
+    const angle = (i/N)*Math.PI*2 + (Math.random()-0.5)*0.25;
+    warpParticles.push({
+      angle,
+      dist : Math.random()*0.3,             // 中心からの距離（cell単位）
+      spd  : 0.4 + Math.random()*1.8,      // cell/sec（加速前の基礎速度）
+      white: Math.random()<0.12,            // 一部を白くして光ファイバー感
+      width: 0.8 + Math.random()*1.5
+    });
+  }
+}
+function updateWarp(dt){
+  warpTimer += dt;
+  const progress = Math.min(1, warpTimer / WARP_DURATION_MS);
+  const accel = 1 + progress*progress*18;  // 指数的加速
+  warpParticles.forEach(p=>{ p.dist += p.spd * accel * dt/1000; });
+  if(warpTimer >= WARP_DURATION_MS){
+    warpActive = false;
+    initMatrixStreams();  // ワープ完了 → Matrixレイン開始
+  }
+}
+function drawWarp(){
+  ctx.save();
+  const cx = W/2, cy = H/2;
+  const progress = Math.min(1, warpTimer / WARP_DURATION_MS);
+  // 徐々に画面が明るくなる白フラッシュ（終盤だけ）
+  if(progress > 0.7){
+    ctx.fillStyle = `rgba(0,255,65,${(progress-0.7)*0.18})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  warpParticles.forEach(p=>{
+    const trailLen = p.spd * (0.5 + progress*4) * cell; // 加速につれてトレイルが伸びる
+    const x1 = cx + Math.cos(p.angle) * p.dist * cell;
+    const y1 = cy + Math.sin(p.angle) * p.dist * cell;
+    const x0 = cx + Math.cos(p.angle) * Math.max(0, p.dist*cell - trailLen);
+    const y0 = cy + Math.sin(p.angle) * Math.max(0, p.dist*cell - trailLen);
+    const alpha = Math.min(1, 0.3 + progress*0.7);
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    const col = p.white ? `rgba(255,255,255,${alpha})` : `rgba(0,255,65,${alpha})`;
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, col);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = p.width;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  });
+  ctx.restore();
+}
 
 function initStars(){
   stars=[];
@@ -1079,9 +1199,7 @@ function initStars(){
         size:STAR_SIZE, alphaBase:L.alphaBase,
         color: STAR_COLORS[Math.floor(Math.random()*STAR_COLORS.length)],
         twinklePhase: Math.random()*Math.PI*2,
-        twinkleSpeed: 1.5+Math.random()*2.5,
-        ch: '・', // 通常は中点。ステージ3以降はMATRIX_CHARSに切り替え
-        changeTimer: 200 + Math.random()*800 // 文字変化までの残り時間(ms)
+        twinkleSpeed: 1.5+Math.random()*2.5
       });
     }
   });
@@ -1247,9 +1365,11 @@ function setupFormationForStage(){
 
 const MAX_DIVERS = [0,4,2]; // ステージごとの同時攻撃数上限（第三形態はフレーズの可読性を保つため少なめ）
 
-function countDiving(){
-  let n=0; for(const e of enemies){ if(e.pattern==='peel' && e.diveState!=='hover') n++; } return n;
-}
+// 最適化：countDiving()は元々enemies全体をO(n)スキャンするため、
+// enemies.forEach内で呼ぶとO(n²)になっていた。
+// → updateEnemies先頭で1度だけ再計算し、以後はカウンタを参照するだけ（hover→diving時にインクリメント）
+let _divingCount = 0;
+function countDiving(){ return _divingCount; }
 
 function updateFormationEnemy(e, dt){
   e.prevX = e.x; e.prevY = e.y; // 斜め移動時の向き判定用
@@ -1286,6 +1406,7 @@ function updateFormationEnemy(e, dt){
       const cap = MAX_DIVERS[stageIndex]||3;
       if(e.diveDelay<=0 && countDiving()<cap){
         e.diveState='diving'; e.diveT=0;
+        _divingCount++; // 同フレーム内の後続敵がcapを正しく参照できるようインクリメント
       }
     } else if(e.diveState==='diving'){
       e.diveT += dt/2200;
@@ -1371,7 +1492,7 @@ function updateFormationAnchor(dt){
   }
 }
 
-let lastBossChar = null;
+
 let bossCharsUsedThisRun = new Set(); // 1プレイ内でボス漢字が重複しないようにする
 function triggerBossSequence(){
   enemies.forEach(e=>addParticles(e.x,e.y,4,'#66ccff'));
@@ -1382,7 +1503,6 @@ function triggerBossSequence(){
   let candidates = BOSS_POOL.filter(b=>!bossCharsUsedThisRun.has(b[0]));
   if(candidates.length===0) candidates = BOSS_POOL; // 万一枯渇したらリセット（通常は3ステージ分＜6種なので発生しない）
   let pick = candidates[Math.floor(Math.random()*candidates.length)];
-  lastBossChar = pick[0];
   bossCharsUsedThisRun.add(pick[0]);
   bossPending = { ch:pick[0], strokes:pick[1], sub:pick[2] };
   state = 'warning';
@@ -1406,17 +1526,6 @@ let bossEscortCycle = 0;
 let bossEscortCycleTimer = 0;
 let bossEscortSpawnTimer = 0;
 let bossEscortCycleSpawned = 0;
-function spawnSingleEscortEnemy(){
-  const tier = Math.random()<0.5 ? TIER_WEAK : TIER_MEDIUM;
-  const pattern = stageIndex===0 ? 'march' : 'peel';
-  const slotX = (Math.random()-0.5)*(cols-4);
-  const slotY = -1 - Math.random()*6; // 縦方向にも散らして重なりを防ぐ
-  const e = makeEnemyBase(slotX, slotY, tier);
-  e.pattern = pattern;
-  e.x = formation.anchorX + slotX; e.y = slotY;
-  enemies.push(e);
-}
-
 function spawnEscortFormation(){
   // ボス戦には随伴する護衛編隊がつく。各ステージの通常編隊と同じパターン・規模感（旧仕様の約3倍）
   if(stageIndex===0){
@@ -1581,6 +1690,7 @@ function damageEnemy(e, isBoss){
       skipRestOfFrame = true; // 撃破直後の同フレームで残存敵弾に当たって即ゲームオーバーになる競合を防ぐ
       if(stageIndex<2){
         stageIndex++;
+        if(stageIndex===2) startWarpEffect(); // ステージ3突入：ワープ演出開始
         stageStartElapsed=elapsed;
         startApproachPhase();
         ensureAudio(); playPromenade();
@@ -1662,6 +1772,7 @@ function resetGame(){
   input.dodgeRequested=false; dodgeUsesUsed=0; dodgeSuppressNext=false;
   formation.anchorX=cols/2; formation.anchorY=2; formation.dir=1;
   stageGraceActive=false; stageGraceTimer=0; graceWaitingForAssembly=false; skipRestOfFrame=false;
+  warpActive=false; warpTimer=0; warpParticles=[]; matrixStreams=[]; // ステージ3演出のリセット
   runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
@@ -1670,7 +1781,6 @@ function startAttractDemo(){
   demoActive = true;
   resetGame();
   state = 'playing';
-  demoMoveTimer = 0;
   demoDirAngle = Math.random()*Math.PI*2;
   demoPauseTimer = 0;
   demoFireStopTimer = 0;
@@ -1723,13 +1833,13 @@ async function filterNgName(rawName){
 
 // 要望対応：一度入力した名前をcookieで保持し、次回以降フォームのデフォルトにする
 function saveNameCookie(name){
-  try{ document.cookie = 'kc_rank_name=' + encodeURIComponent(name) + '; max-age=31536000; path=/'; }catch(e){}
+  try{ document.cookie = 'kc_rank_name=' + encodeURIComponent(name) + '; max-age=31536000; path=/'; }catch(_){}
 }
 function loadNameCookie(){
   try{
     const m = document.cookie.match(/(?:^|; )kc_rank_name=([^;]*)/);
     return m ? decodeURIComponent(m[1]) : '';
-  }catch(e){ return ''; }
+  }catch(_){ return ''; }
 }
 
 function showRankingForm(){
@@ -1814,11 +1924,11 @@ document.getElementById('rankContinueHint').addEventListener('click', hideRankin
 // 同一プレイヤーがランキングに重複して並ぶのを防ぐための、あくまで善意のプレイヤー向けの軽量ガード。
 const LOCAL_BEST_SCORE_KEY = 'kc_local_best_score';
 // localStorageはプライベートブラウズ等で例外を投げるため、try/catchの定型を集約する
-function lsGet(key, fallback){ try{ const v = localStorage.getItem(key); return v == null ? fallback : v; }catch(e){ return fallback; } }
-function lsSet(key, value){ try{ localStorage.setItem(key, value); }catch(e){} }
+function lsGet(key, fallback){ try{ const v = localStorage.getItem(key); return v == null ? fallback : v; }catch(_){ return fallback; } }
+function lsSet(key, value){ try{ localStorage.setItem(key, value); }catch(_){} }
 function getLocalBestScore(){
   const raw = lsGet(LOCAL_BEST_SCORE_KEY, null);
-  try{ return raw ? BigInt(raw) : 0n; }catch(e){ return 0n; }
+  try{ return raw ? BigInt(raw) : 0n; }catch(_){ return 0n; }
 }
 function saveLocalBestScore(s){ lsSet(LOCAL_BEST_SCORE_KEY, s.toString()); }
 
@@ -2119,6 +2229,9 @@ function updatePlayerFire(dt){
 }
 
 function updateEnemies(dt){
+  // O(n)で1回だけカウントし直す。以後このフレーム内はcountDiving()→_divingCountを返すだけ
+  _divingCount = 0;
+  for(const e of enemies){ if(e.pattern==='peel' && e.diveState!=='hover') _divingCount++; }
   updateFormationAnchor(dt);
   enemies.forEach(e=>updateFormationEnemy(e,dt));
   for(let i=enemies.length-1;i>=0;i--){
@@ -2229,22 +2342,10 @@ function updateEffects(dt){
 }
 
 function updateStars(dt){
-  const matrixMode = (stageIndex >= 2);
-  stars.forEach(s=>{
-    s.y += s.speed*dt/1000;
-    s.twinklePhase += s.twinkleSpeed*dt/1000;
-    if(s.y>rows){ s.y=-1; s.x=Math.random()*cols; }
-    // ステージ3以降：文字をランダムに変化させる（マトリックス風）
-    if(matrixMode){
-      s.changeTimer -= dt;
-      if(s.changeTimer <= 0){
-        s.ch = MATRIX_CHARS[Math.floor(Math.random()*MATRIX_CHARS.length)];
-        s.changeTimer = 150 + Math.random()*600;
-      }
-    } else {
-      s.ch = '・';
-    }
-  });
+  if(warpActive){ updateWarp(dt); return; }
+  if(stageIndex >= 2){ updateMatrixStreams(dt); return; }
+  // ステージ0-1：通常の流れ星（・）
+  stars.forEach(s=>{ s.y += s.speed*dt/1000; s.twinklePhase += s.twinkleSpeed*dt/1000; if(s.y>rows){ s.y=-1; s.x=Math.random()*cols; } });
 }
 
 function updateLogic(dt){
@@ -2512,18 +2613,18 @@ function drawPauseOverlay(){
 }
 
 function drawStars(){
+  if(warpActive){ drawWarp(); return; }
+  if(stageIndex >= 2){ drawMatrixStreams(); return; }
+  // ステージ0-1：通常の流れ星（・）
   ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
-  const matrixMode = (stageIndex >= 2);
   stars.forEach(s=>{
     const twinkle = 0.6 + 0.4*Math.sin(s.twinklePhase);
     ctx.globalAlpha = s.alphaBase * twinkle;
-    ctx.fillStyle = matrixMode ? MATRIX_GREEN : s.color;
-    // マトリックス文字は少し大きめにして視認性を確保
-    const sizeMul = matrixMode ? 0.85 : s.size;
-    ctx.font=`${cell*sizeMul}px monospace`;
-    ctx.fillText(s.ch || '・', gx(s.x), gy(s.y));
+    ctx.fillStyle = s.color;
+    ctx.font=`${cell*s.size}px monospace`;
+    ctx.fillText('・', gx(s.x), gy(s.y));
   });
-  ctx.restore();
+  ctx.globalAlpha=1; ctx.restore();
 }
 
 function drawTitle(){
