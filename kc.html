@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv75</title>
+<title>漢字超戦 kcv77</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv75';
+const KCV_VERSION = 'kcv77';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -162,6 +162,7 @@ function drawPlayerChar(alpha){
    漢字プール・出題管理（通常敵／ボス／ステージ3フレーズ）
    ============================================================ */
 const KANJI_POOL = [
+  // 既存128文字
   ['一',1],['二',2],['三',3],['四',5],['五',4],['六',4],['七',2],['八',2],['九',2],['十',2],
   ['人',2],['大',3],['小',3],['山',3],['川',3],['田',5],['火',4],['水',4],['木',4],['金',8],
   ['土',3],['日',4],['月',4],['年',6],['学',8],['校',10],['生',5],['先',6],['気',6],['力',2],
@@ -174,7 +175,32 @@ const KANJI_POOL = [
   ['右',5],['前',9],['後',9],['内',4],['間',12],['事',8],['物',8],['者',8],['何',7],['私',7],
   ['今',4],['明',8],['白',5],['黒',11],['赤',7],['青',8],['高',10],['安',6],['早',6],['長',8],
   ['多',6],['少',4],['強',11],['弱',10],['太',4],['細',11],['広',5],['家',10],['町',7],['村',7],
-  ['島',10],['道',12],['走',7],['歩',8],['買',12],['売',7],['立',5],['見',7]
+  ['島',10],['道',12],['走',7],['歩',8],['買',12],['売',7],['立',5],['見',7],
+  // 追加128文字（kcv76）
+  // 自然・季節
+  ['天',4],['地',6],['雪',11],['春',9],['夏',10],['秋',9],['冬',5],['波',8],['雲',12],['岩',8],
+  ['野',11],['草',9],['根',10],['葉',12],['砂',9],['池',6],['丘',5],['谷',7],['朝',12],['夜',8],
+  // 人・社会
+  ['父',4],['母',5],['子',3],['男',7],['女',3],['友',4],['兄',5],['弟',7],['姉',8],['妹',8],
+  ['君',7],['民',5],['族',11],['士',3],['兵',7],['老',6],['若',8],['親',16],['隊',12],['軍',9],
+  // 動作・変化
+  ['泳',8],['飛',9],['鳴',14],['落',12],['浮',10],['転',11],['打',5],['切',4],['引',4],['押',8],
+  ['動',11],['止',4],['起',10],['眠',10],['笑',10],['泣',8],['焼',12],['凍',10],['流',10],['集',12],
+  // 抽象・感情
+  ['真',10],['善',12],['美',9],['正',5],['勝',12],['負',9],['速',10],['苦',8],['幸',8],['福',13],
+  ['平',5],['和',8],['争',6],['戦',13],['危',6],['守',6],['攻',7],['助',7],['急',9],['静',14],
+  // 色・素材
+  ['緑',14],['紫',12],['灰',6],['茶',9],['銀',14],['銅',14],['鉄',13],['布',5],['絹',13],['綿',14],
+  ['革',9],['宝',8],
+  // 学習・文化
+  ['詩',13],['歌',14],['絵',12],['図',7],['算',14],['数',13],['知',8],['考',6],['解',13],['問',11],
+  ['答',12],['題',18],
+  // 身体
+  ['歯',12],['骨',10],['血',6],['肩',8],['背',9],['腹',13],['胸',10],['腰',13],['首',9],['皮',5],
+  ['眼',11],['指',9],
+  // 場所・建物
+  ['船',11],['橋',16],['門',8],['窓',11],['机',6],['壁',16],['屋',9],['旅',10],['港',12],['城',9],
+  ['館',16],['塔',12]
 ];
 const BOSS_POOL = [
   ['電',13,'放電注意'],['頭',16,'思考停止'],['顔',18,'視認困難'],
@@ -569,6 +595,84 @@ function playSong(segments, tempo, loop, gainVal, tieRepeats){
 function playDash(){ playSong(DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
 function playPromenade(){ playSong(PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
 function playVezarLoop(){ playSong(VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11, true); }
+
+// Dash! フルループ（ステージ3 BGM）
+// BASICリスト A→B→(RE+C×2+C2+D×2+E)×3 を1ループとしてフラット化
+// 各セクションの対応行番号をコメントで明示（line=BASICの行番号）
+// ※len=0のグレースノートはLENGTH_TABLE[0]=3で処理されるためパーサー修正不要
+const DASH_LOOP_SEGMENTS = [
+  // ── Section A ──
+  ["O2+C1R5R1+C1#A1R5R3#A1A7R3","O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C",""], // L50
+  ["A4#A3B3","C1C1C1-D1-D1F1F1",""],                                                  // L60
+  ["O2+C1R5R1+C1#A1R5R3#A1A7R3","O1+G1E1E1E1E1E1+G1+F1D1D1D1D1D1D1+F1>#E7<C1C",""], // L80
+  ["A4#A3B3","C1CCDDGG",""],                                                           // L90
+  // ── Section B ──
+  ["O1G7","O1D1D1D1D1D1D1O0C0E0G1",""],                                              // L110
+  ["O1B7","O1D1D1D1D1D1D1O0C0E0G1",""],                                              // L120
+  ["O2D7","O1F1F1F1F1F1F1O0C0E0+C1",""],                                             // L130
+  // ── RE(1) + C×2 + C2 + D×2 + E ──
+  ["O2G7","O2D1D1D1D1D1D1D1D1",""],                                                  // L140
+  ["-G1G1F1F1E1E1D1D1","O0G1G1G1O1G1G1G1A1B1",""],                                  // L150
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],                                    // L170 C[1]
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],                                // L180
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],                                           // L190 A→1
+  ["O1B1A1G1+C1B1O2C1D3C1D1E1","<BAG>EC-GEFD-FF",""],                               // L210
+  ["O2F3E1D3G4","O1D3E1F3-G4",""],                                                   // L230
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],                                    // L170 C[2]
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],                                // L180
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],                                           // L190 A→2→C2
+  ["L1G1A1B1+C6D0E0F0G0C1+C+C+C+C","O1L1C1-G1-C1F6<D0D0D0D0>E1E5",""],             // L260
+  ["O1R1B3","R1D3",""],                                                               // L270
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],                                           // L280 D[1] A→3
+  ["G5F3E1F7R1","O0ERREERRRFRRFFRRR",""],                                             // L290
+  ["D7G5D5","O1#ARR#A#ARRRO0+ERR+E#ARR",""],                                         // L300
+  ["F4E3D1E7R3","O1DRRDDRRRCRRCCRRR",""],                                             // L310
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],                                           // L280 D[2] A→4→E
+  ["G5F3E1F6","ERREERRRDRRDD",""],                                                    // L370
+  ["O2F1E1E1D7D1DDDD1E1E3","O1RRRARRAARRRARRAARRR",""],                              // L380→RE
+  // ── RE(2) + C×2 + C2 + D×2 + E ──
+  ["O2G7","O2D1D1D1D1D1D1D1D1",""],
+  ["-G1G1F1F1E1E1D1D1","O0G1G1G1O1G1G1G1A1B1",""],
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],
+  ["O1B1A1G1+C1B1O2C1D3C1D1E1","<BAG>EC-GEFD-FF",""],
+  ["O2F3E1D3G4","O1D3E1F3-G4",""],
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],
+  ["L1G1A1B1+C6D0E0F0G0C1+C+C+C+C","O1L1C1-G1-C1F6<D0D0D0D0>E1E5",""],
+  ["O1R1B3","R1D3",""],
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],
+  ["G5F3E1F7R1","O0ERREERRRFRRFFRRR",""],
+  ["D7G5D5","O1#ARR#A#ARRRO0+ERR+E#ARR",""],
+  ["F4E3D1E7R3","O1DRRDDRRRCRRCCRRR",""],
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],
+  ["G5F3E1F6","ERREERRRDRRDD",""],
+  ["O2F1E1E1D7D1DDDD1E1E3","O1RRRARRAARRRARRAARRR",""],
+  // ── RE(3) + C×2 + C2 + D×2 + E（3周目終了でA先頭へループ）──
+  ["O2G7","O2D1D1D1D1D1D1D1D1",""],
+  ["-G1G1F1F1E1E1D1D1","O0G1G1G1O1G1G1G1A1B1",""],
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],
+  ["O1B1A1G1+C1B1O2C1D3C1D1E1","<BAG>EC-GEFD-FF",""],
+  ["O2F3E1D3G4","O1D3E1F3-G4",""],
+  ["E8D3E3","O2C1-G-ECC-G-E-CC-G-ECC-G-E-C",""],
+  ["F5E3D1C6<<G1#G1A1>>","O1AAAAAAAAGGGGG<G#GA>",""],
+  ["O1A6+D1B6","O1D-A-FDD-A-FDEC-GEE",""],
+  ["L1G1A1B1+C6D0E0F0G0C1+C+C+C+C","O1L1C1-G1-C1F6<D0D0D0D0>E1E5",""],
+  ["O1R1B3","R1D3",""],
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],
+  ["G5F3E1F7R1","O0ERREERRRFRRFFRRR",""],
+  ["D7G5D5","O1#ARR#A#ARRRO0+ERR+E#ARR",""],
+  ["F4E3D1E7R3","O1DRRDDRRRCRRCCRRR",""],
+  ["O2E7A5E5","O0G1RRGGRRRO1DRRDCRRR",""],
+  ["G5F3E1F6","ERREERRRDRRDD",""],
+  ["O2F1E1E1D7D1DDDD1E1E3","O1RRRARRAARRRARRAARRR",""],  // → loop to A
+];
+const DASH_LOOP_TEMPO = 150; // BASICリストL40のT150に対応（VEZARと同様のtempoパラメータ方式）
+function playDashLoop(){ playSong(DASH_LOOP_SEGMENTS, DASH_LOOP_TEMPO, true, 0.12); }
 
 
 /* ============================================================
@@ -1071,8 +1175,8 @@ let enemies=[], pBullets=[], eBullets=[], particles=[], popups=[], stars=[];
 
 // ============ Matrix rain / ワープ演出 ============
 // ステージ3突入時：3秒のワープ演出（中心から放射状に射出） → Matrixデジタルレイン
-// Matrix文字プール：半角カタカナ＋漢字（ゲームとの世界観を合わせる）
-const MATRIX_RAIN_CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ一二三四五六七八九十大小火水木金電龍'.split('');
+// Matrix文字プール：半角カタカナのみ（漢字は敵文字と誤認されるため除外）
+const MATRIX_RAIN_CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ'.split('');
 function _rmc(){ return MATRIX_RAIN_CHARS[Math.floor(Math.random()*MATRIX_RAIN_CHARS.length)]; }
 
 let matrixStreams = [];
@@ -1626,9 +1730,9 @@ let clearWave2Spawned = false;
 // 演出は全員が画面上端を抜けてから2秒の余韻（clearAfterGlow）→リザルト。
 // 1波目が全員画面外へ出るのに約6.2秒かかるため、2波目は6.5秒後にスポーン
 // 全体：6.5秒（2波目スポーン）+ 6.2秒（2波目上昇）= 約12.7秒 → 13秒を上限に
-const CLEAR_CELEBRATION_MS = 13000;
-const CLEAR_WAVE2_DELAY_MS = 6500;
-const CEL_RISE_SPEED = (rows + 6) / 5.0; // 全員が画面外へ抜けるのに約5秒
+const CLEAR_CELEBRATION_MS = 20000; // 9000(1波脱出)+9000(2波脱出)+2000(余裕)
+const CLEAR_WAVE2_DELAY_MS = 9000;  // 16行波が全員抜けるのに約8.5秒（landscape基準）
+const CEL_RISE_SPEED = (rows + 6) / 5.0; // 全員が画面外へ抜けるのに約5秒（rows依存）
 
 function spawnClearCelebrationWave(startIndex){
   const spacingX = cols / 8;
@@ -1639,8 +1743,8 @@ function spawnClearCelebrationWave(startIndex){
     const colPhase = (col / 8) * Math.PI * 2;
     const amp      = 0.7 + (col % 3) * 0.2;     // 0.7〜1.1（広い横幅、列間隔の1/3以下）
     const snakeFreq = 0.55 + (col % 4) * 0.08;  // 1列内のsin波の繰り返し数（波長）
-    for(let row = 0; row < 8; row++){
-      const kanji = KANJI_POOL[(startIndex + col * 8 + row) % KANJI_POOL.length];
+    for(let row = 0; row < 16; row++){            // 8行→16行（128文字/波）
+      const kanji = KANJI_POOL[(startIndex + col * 16 + row) % KANJI_POOL.length];
       const startY = rows + 2 + row * 1.1;
       // 各体のX：rowに応じてsin波でずれる → 列全体が最初から曲線状に配置される
       const snakeX = baseX + Math.sin(row * snakeFreq + colPhase) * amp;
@@ -1693,7 +1797,9 @@ function damageEnemy(e, isBoss){
         if(stageIndex===2) startWarpEffect(); // ステージ3突入：ワープ演出開始
         stageStartElapsed=elapsed;
         startApproachPhase();
-        ensureAudio(); playPromenade();
+        ensureAudio();
+        if(stageIndex===1) playPromenade(); // プロムナードはステージ2開始時のみ
+        else if(stageIndex===2) playDashLoop(); // ステージ3：Dash!をVEZARエンジンでループ再生
       } else {
         // 要望対応：最終ボスは爆散を派手に（追加のパーティクルバースト＋派手な爆音）してからクリア演出へ
         // 不具合修正：画面外まで爆散が届く範囲に拡大し、持続時間も現行の3倍にした
@@ -1701,6 +1807,7 @@ function damageEnemy(e, isBoss){
         addBigExplosionParticles(e.x,e.y, 40, '#ffee33');
         addBigExplosionParticles(e.x,e.y, 30, '#ff8a3b');
         SFX.bigExplosion();
+        stopSong(); // ボス3撃破でBGM停止（クリア演出は無音）
         startClearCelebration();
       }
     }
@@ -2357,7 +2464,7 @@ function updateLogic(dt){
   if(state==='clearCelebration'){
     clearCelebrationTimer += dt;
     if(!clearWave2Spawned && clearCelebrationTimer>=CLEAR_WAVE2_DELAY_MS){
-      spawnClearCelebrationWave(64);
+      spawnClearCelebrationWave(128); // 2波目：128〜255番目の漢字
       clearWave2Spawned = true;
     }
     // 各スプライトが列全体を曲線に保ちながら上昇
