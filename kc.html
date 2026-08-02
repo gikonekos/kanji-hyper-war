@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv77</title>
+<title>漢字超戦 kcv78</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv77';
+const KCV_VERSION = 'kcv78';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -592,6 +592,8 @@ function playSong(segments, tempo, loop, gainVal, tieRepeats){
   stopSong();
   currentSong = scheduleSong(actx, segments, tempo, loop, gainVal, tieRepeats);
 }
+// 以下2つはkcv78で未使用（Stage1→playStage1、Stage2→playStage2に置換）。
+// DASH_SEGMENTS/PROM_SEGMENTSの実機解析MMLデータを記録として残すため関数ごと保持。
 function playDash(){ playSong(DASH_SEGMENTS, DASH_TEMPO, false, 0.12); }
 function playPromenade(){ playSong(PROM_SEGMENTS, PROM_TEMPO, false, 0.12); }
 function playVezarLoop(){ playSong(VEZAR_SEGMENTS, VEZAR_TEMPO, true, 0.11, true); }
@@ -673,6 +675,51 @@ const DASH_LOOP_SEGMENTS = [
 ];
 const DASH_LOOP_TEMPO = 150; // BASICリストL40のT150に対応（VEZARと同様のtempoパラメータ方式）
 function playDashLoop(){ playSong(DASH_LOOP_SEGMENTS, DASH_LOOP_TEMPO, true, 0.12); }
+
+// ============ Stage 1 BGM：スペースインベーダー・オマージュ（Claude作曲）============
+// メロディ(O3)＋ハモリ(O2、3度下)＋バス(O1、本家オマージュの半音下降8分刻み)の3パート・4小節ループ。
+// 敵スピード（speedMul 1〜32、残数に連動）を4段階に量子化し、Lvが上がるたびテンポを上げる（本家の加速演出）。
+const STAGE1_SEGMENTS = [
+  // 小節1：高く駆け上がって落ちる（ソミド・ソミド）
+  ["G3E3C3R3G3E3C5", "E3C3A3R3E3C3A5", "O1C3C3B3B3A3A3A3A3"],
+  // 小節2：応答
+  ["A3F3D3R3B3G3E5", "F3D3B3R3G3E3C5", "O1G3G3G3G3F3F3F3F3"],
+  // 小節3：頂点へ
+  ["O4C3A3F3R3O4C3B3A5", "A3F3D3R3A3G3F5", "O1E3E3D3D3D3D3C3C3"],
+  // 小節4：主音へ回帰（タメ）
+  ["G3E3C3R3C7", "E3C3A3R3C7", "O1G3G3G3G3C3C3C3C3"],
+];
+// 敵スピード段階→テンポ（PLAY3準拠：数値小＝速い）。Lv1(序盤)→Lv4(残りわずか)
+const STAGE1_TEMPO_BY_LV = [160, 140, 120, 100];
+let stage1MusicLv = -1; // 現在鳴っているテンポ段階。Lvが変わった時のみ再生し直す
+function stage1SpeedLevel(speedMul){
+  // speedMul 1〜32 を4段階に量子化
+  if(speedMul < 4)  return 0;
+  if(speedMul < 10) return 1;
+  if(speedMul < 20) return 2;
+  return 3;
+}
+function playStage1(lv){
+  stage1MusicLv = lv;
+  playSong(STAGE1_SEGMENTS, STAGE1_TEMPO_BY_LV[lv], true, 0.12);
+}
+
+// ============ Stage 2 BGM：プロムナード・アレンジ（Claude作曲）============
+// ムソルグスキー「展覧会の絵」プロムナードの開始動機（ソ・ファ・シ♭・ド・レ）を引用し、
+// 短調へ傾く独自展開を経て厚い和声で主題回帰する18小節。主旋律(O3)＋内声(O2)＋バス(O1)。
+const STAGE2_SEGMENTS = [
+  // 主題引用：プロムナード動機
+  ["G5F5#A5O4C5", "O2D5C5F5G5", "O1G5G5C5C5"],
+  ["O4D6C3O3#A5G5", "O2G5F5D5C5", "O1C5C5G5G5"],
+  // 独自展開：短調へ傾く
+  ["O3A5O4C5O3A5F5", "O2F5A5F5D5", "O1F5F5D5D5"],
+  ["O3G5#A5G5E5", "O2E5G5E5C5", "O1C5C5E5E5"],
+  // 回帰：厚い和声で主題再現
+  ["G5F5#A5O4C5", "O2D5C5F5G5", "O1G5G5C5C5"],
+  ["O4D6C3O3G7", "O2G6F3C7", "O1C6C3C7"],
+];
+const STAGE2_TEMPO = 110;
+function playStage2(){ playSong(STAGE2_SEGMENTS, STAGE2_TEMPO, true, 0.12); }
 
 
 /* ============================================================
@@ -1579,6 +1626,11 @@ function updateFormationAnchor(dt){
     const totalForRamp = Math.max(1, stage0WaveInitialCount - 1);
     const kills = stage0WaveInitialCount - marchers.length;
     const speedMul = 1 + (STAGE1_MAX_SPEED_MUL - 1) * Math.min(1, kills / totalForRamp);
+    // 本家インベーダー演出：敵スピード段階が上がったらBGMテンポも上げる（デモ中は鳴らさない）
+    if(!demoActive){
+      const lv = stage1SpeedLevel(speedMul);
+      if(lv > stage1MusicLv && stage1MusicLv >= 0){ playStage1(lv); } // 加速方向のみ（段階が戻ってもテンポは下げない）
+    }
     formation.anchorX += formation.dir * dt/1000*0.275*speedMul; // 基礎速度は1/2のまま、加速倍率のみ強化（要望対応）
     if(formation.anchorX > rightBound || formation.anchorX < leftBound){
       formation.dir *= -1;
@@ -1798,7 +1850,7 @@ function damageEnemy(e, isBoss){
         stageStartElapsed=elapsed;
         startApproachPhase();
         ensureAudio();
-        if(stageIndex===1) playPromenade(); // プロムナードはステージ2開始時のみ
+        if(stageIndex===1) playStage2(); // ステージ2：プロムナード・アレンジ（ループ）
         else if(stageIndex===2) playDashLoop(); // ステージ3：Dash!をVEZARエンジンでループ再生
       } else {
         // 要望対応：最終ボスは爆散を派手に（追加のパーティクルバースト＋派手な爆音）してからクリア演出へ
@@ -1883,7 +1935,7 @@ function resetGame(){
   runUsedFreeMode = dodgeFreeMode; // このプレイでフリーモードが有効だったか（ランキング★用）
   startApproachPhase();
 }
-function startGame(){ resetGame(); state='playing'; ensureAudio(); playDash(); }
+function startGame(){ resetGame(); state='playing'; ensureAudio(); stage1MusicLv=-1; playStage1(0); }
 function startAttractDemo(){
   demoActive = true;
   resetGame();
@@ -2115,6 +2167,8 @@ const STAFF_ROLL_LINES = [
   'プロムナード',
   'ムソルグスキー',
   '「展覧会の絵」より編曲',
+  'Stage 1／Stage 2',
+  'Claude（Anthropic）',
   '協力',
   'ChatGPT',
   'デバッグ',
