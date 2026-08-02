@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv79</title>
+<title>漢字超戦 kcv80</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv79';
+const KCV_VERSION = 'kcv80';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -1002,7 +1002,9 @@ let demoDirAngle = 0; // デモの持続移動方向（慣性用）
 let demoPauseTimer = 0; // 「狙いを定める」演出用の一時停止
 let demoFireStopTimer = 0; // 要望対応：デモ中、弾を時々打たずに止める演出用
 let demoEdgeLockRight = false, demoEdgeLockLeft = false; // 要望対応：右端/左端到達でその方向への移動を却下（中央を超えるまで解除しない）
-let demoNoHitTimer = 0; // 要望対応：無駄玉対策。命中しない状態が2秒続いたら単純に中央へ戻す
+let demoNoHitTimer = 0; // 要望対応：無駄玉対策。命中しない状態が2秒続いたら最下部中央へ戻す
+let demoRecenterTimer = 0; // 上記トリガー後、実際に戻る動作を持続させる残り時間（ms）
+const DEMO_RECENTER_MS = 1500; // 戻り動作の持続時間。短すぎると1フレームで打ち消されて見た目に変化が出ないため確保
 const DODGE_UNIT_TAPS = 1; // 単発クリックでカウント
 const DODGE_UNIT_SEQUENCE = [3,5,8]; // 1回目=3回、2回目=5回、3回目以降=8回のクリック
 let dodgeUsesUsed = 0;
@@ -1954,7 +1956,7 @@ function startAttractDemo(){
   demoPauseTimer = 0;
   demoFireStopTimer = 0;
   demoEdgeLockRight = false; demoEdgeLockLeft = false;
-  demoNoHitTimer = 0;
+  demoNoHitTimer = 0; demoRecenterTimer = 0;
   // デモは無音のまま進行（ユーザー操作を経ていないためAudioContextが未初期化の可能性があり、
   // 無理に音を鳴らそうとしない＝「軽く、確実に」の方針に合わせる）
 }
@@ -2473,7 +2475,7 @@ function updatePlayerBullets(dt){
       const r=0.9;
       if(Math.hypot(b.x-bossActive.x,b.y-bossActive.y)<r){ hit=true; damageEnemy(bossActive,true); }
     }
-    if(hit && demoActive) demoNoHitTimer = 0; // 要望対応：命中したら無駄玉タイマーをリセット
+    if(hit && demoActive){ demoNoHitTimer = 0; demoRecenterTimer = 0; } // 要望対応：命中したら無駄玉タイマー・戻り動作とも解除
     if(hit||b.y<-1){ pBullets.splice(i,1); if(!hit) combo=0; }
   }
 }
@@ -2604,7 +2606,12 @@ function updateLogic(dt){
   if(demoActive){
     // 人間らしい動きへの改善：①方向の持続性（慣性）②敵弾を避ける/敵に近づく反応③緩急（たまに静止）
     // ※「左右往復バイアス」は今回のスコープ外
-    demoNoHitTimer += dt; // 要望対応：無駄玉対策（命中が2秒無ければ中央へ戻す。下のdesiredAngle分岐で参照）
+    demoNoHitTimer += dt; // 要望対応：無駄玉対策（命中が2秒無ければ最下部中央へ戻す。下のdesiredAngle分岐で参照）
+    if(demoRecenterTimer>0){
+      demoRecenterTimer -= dt; // 戻り動作を一定時間（DEMO_RECENTER_MS）維持する
+    } else if(demoNoHitTimer>=2000){
+      demoRecenterTimer = DEMO_RECENTER_MS; demoNoHitTimer = 0; // トリガー：ここから一定時間、戻り動作を優先させる
+    }
     if(demoPauseTimer>0){
       demoPauseTimer -= dt;
       input.active = true;
@@ -2625,11 +2632,11 @@ function updateLogic(dt){
       if(threat){
         desiredAngle = Math.atan2(player.y-threat.y, player.x-threat.x); // 弾から逃げる
         turnRate = 0.5; // 危険には素早く反応
-      } else if(demoNoHitTimer>=2000){
-        // 要望対応：無駄玉対策。命中しないまま2秒経過したら、狙いを立て直す意味で単純に中央へ戻す
-        desiredAngle = Math.atan2(rows/2-player.y, cols/2-player.x);
+      } else if(demoRecenterTimer>0){
+        // 要望対応：無駄玉対策。命中しないまま2秒経過したら、狙いを立て直す意味で最下部中央へ戻る。
+        // 1フレームで解除せずDEMO_RECENTER_MS（1.5秒）は戻り動作を維持し、実際に位置が動くようにする
+        desiredAngle = Math.atan2((rows-2)-player.y, cols/2-player.x);
         turnRate = 0.15;
-        demoNoHitTimer = 0;
       } else if(bossActive){
         // 要望対応：誘導弾と同じ「対象へ向けて補正し続ける」考え方を自機の位置合わせに使う。
         // 弾自体は直上のまま変えず、自機の方をボスの真下へ横方向中心に寄せる。
