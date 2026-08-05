@@ -21,3 +21,9 @@
 
 ## ドキュメント
 開発経緯は [doc/changelog.md](doc/changelog.md) を参照
+
+## 関連
+
+- 作者サイト: [motoikenkichi.com](https://motoikenkichi.com/)
+- BGMの一部は PLAY3 由来の曲（Dash! / VEZAR）— [PLAY3 Archive](https://github.com/gikonekos/PLAY3-Archive)
+- 他プロジェクト: [github.com/gikonekos](https://github.com/gikonekos)
