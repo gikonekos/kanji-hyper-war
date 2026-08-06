@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv81</title>
+<title>漢字超戦 kcv82</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv81';
+const KCV_VERSION = 'kcv82';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -707,51 +707,52 @@ function playStage1(lv){
 // ============ Stage 2 BGM：プロムナード・アレンジ（Claude作曲）============
 // ムソルグスキー「展覧会の絵」プロムナードの開始動機（ソ・ファ・シ♭・ド・レ）を引用し、
 // 短調へ傾く独自展開を経て厚い和声で主題回帰する18小節。主旋律(O3)＋内声(O2)＋バス(O1)。
+// ステージ2 BGM：ムソルグスキー「展覧会の絵」プロムナードの忠実アレンジ。
+// 構成：原曲フレーズ1回分（A）→アレンジ（B）→盛り上がり（C）→違和感なくループ（D）。
+// 各パートは4分音符（len5=24単位）×4＝96単位で厳密に統一。
+// 和声はC長調の三和音を基本に、内声・バスが主旋律と常に協和（3度/5度/8度）する構成音のみを取る。
 const STAGE2_SEGMENTS = [
-  // ━━ A: 主題呈示（プロムナード動機、C長調）━━
-  // [メロディ O3/O4, 内声 O2, バス O1]  各パート96単位
-  // seg0: 動機前半「ソ・ファ・シ♭・ド」
-  ["G5F5#A5O4C5", "O2D5C5F5G5", "O1G5G5C5C5"],
-  // seg1: 動機後半「レ・ソ・...」＋和音の強調
-  ["O4D6C3O3#A5G5", "O2G5F5D5C5", "O1C5C5G5G5"],
-  // seg2: 動機の反復・少し上方へ（D長調経過）
-  ["O4E5D5#C5D5", "O2#F5E5D5B5", "O1B5B5D5D5"],
-  ["O4#F5E5D5O3B5", "O2B5#A5G5E5", "O1E5E5B5B5"],
+  // ━━ A: 原曲フレーズ1回分（プロムナード主題を忠実に）━━
+  // 主題「ソ・ファ・シ♭・ド」＝ G F B♭(=#A) C。内声は3度下、バスは根音（4分音符）
+  ["O3G5F5#A5O4C5", "O2E5D5F5A5", "O1C5C5F5F5"],
+  // レ・ド・シ・ド（主題の応答）→Cへ収める
+  ["O4D5C5O3B5O4C5", "O2G5E5D5E5", "O1G5C5G5C5"],
+  // 主題後半：ファ・ミ・レ・ド（下行）
+  ["O4F5E5D5C5", "O2A5G5F5E5", "O1F5C5D5C5"],
+  // ソ・ミ・レ・ソ（G＝ドミナントで半終止、Aの締め）
+  ["O4G5E5D5G5", "O2D5C5G5D5", "O1G5C5G5G5"],
 
-  // ━━ B: 展開（短調へ傾く）━━
-  // seg4: aマイナーへ転調
-  ["O3A5O4C5O3A5F5", "O2F5A5F5D5", "O1F5F5D5D5"],
-  // seg5: 緊張高まる半音階的進行
-  ["O3G5#A5G5E5", "O2E5G5E5C5", "O1C5C5E5E5"],
-  // seg6: 内声が動き始める
-  ["O3A5O4C5O3E5A5", "O2A5E5C5A5", "O1A5A5E5E5"],
-  // seg7: 解決を引き延ばす（不安定）
-  ["O3#G5A5#G5E5", "O2E5#G5B5E5", "O1E5E5B5B5"],
+  // ━━ B: アレンジ（主題を内声へ、主旋律は上でオブリガート）━━
+  // 主旋律：ミ・ソ・ド・ソ（Cメジャー分散）／内声が主題を担当
+  ["O4E5G5O5C5O4G5", "O2G5F5#A5A5", "O1C5C5F5F5"],
+  // aマイナーへ寄り道（A C E＝協和）：レ・ド・ラ・ソ
+  ["O4D5C5O3A5G5", "O2A5G5E5C5", "O1A5A5E5A5"],
+  // F→G（サブドミナント→ドミナント）：ミ・ファ・ソ・ラ
+  ["O4E5F5G5A5", "O2C5C5D5D5", "O1C5F5G5G5"],
+  // Cへ解決：ソ・ミ・ド・ミ
+  ["O4G5E5C5E5", "O2E5C5G5G5", "O1C5C5G5C5"],
 
-  // ━━ C: クライマックス（荘厳・厚い和声）━━
-  // seg8: メロディが1オクターブ跳躍
-  ["O4C5E5G5O5C5", "O2G5E5C5G5", "O1C5C5G5G5"],
-  // seg9: 主題動機が強化されて回帰
-  ["G5F5#A5O5C5", "O2D5C5F5G5", "O1G5G5C5C5"],
-  // seg10: 全パートが厚い和音で盛り上がる
-  ["O5D6C3O4#A5G5", "O2G5F5D5C5", "O1C5C5G5G5"],
-  // seg11: クライマックスの頂点（fffダイナミクス的）
-  ["O5E5D5O4B5G5", "O2G5B5D5G5", "O1G5G5D5D5"],
-  // seg12: 余韻・荘厳な和声で空気を変える
-  ["O4G9", "O2D9", "O1G9"],
-  ["O4G9", "O2B9", "O1D9"],
+  // ━━ C: 盛り上がり（主題を1オクターブ上、厚い三和音で荘厳に）━━
+  // 主題再現（1オクターブ上）：ソ・ファ・シ♭・ド
+  ["O4G5F5#A5O5C5", "O2E5D5F5A5", "O1C5C5F5F5"],
+  // レ・ド・シ・ド（頂点）
+  ["O5D5C5O4B5O5C5", "O2G5E5D5E5", "O1G5C5G5C5"],
+  // Fメジャーで広がり（F A C）：ド・ラ・ファ・ラ
+  ["O5C5O4A5F5A5", "O2F5F5C5F5", "O1F5F5A5F5"],
+  // Gメジャー（G B D）で頂点保持・ドミナントの緊張：レ・シ・ソ・シ
+  ["O5D5O4B5G5B5", "O2G5D5D5G5", "O1G5G5B5G5"],
+  // Cメジャーの全音符で荘厳な余韻（C E G＝各パート持続）
+  ["O5C9", "O2E9", "O1C9"],
 
-  // ━━ D: 帰還（自然なループへ）━━
-  // seg14: 静かに主題を準備（テンションを落とす）
-  ["O3G5G5F5E5", "O2E5E5D5C5", "O1C5C5C5G5"],
-  // seg15: ループ直前、冒頭と同じ和声へ戻す
-  ["O3A5O4C5O3A5F5", "O2F5A5F5D5", "O1F5F5D5D5"],
-  // seg16: Gドミナントで冒頭（C長調のソ・ファ・シ♭・ド）を引き寄せる
-  ["O3G5#A5O4C5D5", "O2D5C5G5F5", "O1G5G5G5G5"],
-  // seg17: 終止形→冒頭seg0へ自然につながる
-  ["O4C6C3O3G5F5", "O2G6F3D5C5", "O1C6C3G5G5"],
+  // ━━ D: 帰還（テンションを落として冒頭へ違和感なくつなぐ）━━
+  // 下行：ソ・ファ・ミ・レ（協和したまま静かに）
+  ["O4G5F5E5D5", "O2E5D5C5G5", "O1C5C5C5G5"],
+  // Fメジャー経過で落ち着ける：ド・ラ・ファ・ラ
+  ["O4C5O3A5F5A5", "O2F5F5C5F5", "O1F5F5A5F5"],
+  // G（ドミナント）で冒頭のC長調・主題を引き寄せる：ソ・ラ・シ・レ
+  ["O3G5A5B5O4D5", "O2D5C5G5F5", "O1G5G5G5G5"],
 ];
-const STAGE2_TEMPO = 110;
+const STAGE2_TEMPO = 108;
 function playStage2(){ playSong(STAGE2_SEGMENTS, STAGE2_TEMPO, true, 0.12); }
 
 
@@ -1528,43 +1529,43 @@ function setupFormationForStage(){
     spawnStage0Wave(); // 1ウェーブ目。全滅させると2ウェーブ目が出る（合計で旧仕様の約3倍）
   } else if(stageIndex===1){
     // ━━ 第二形態：ギャラクシアン風隊列 ━━
-    // 構成（下から）：
-    //   最下段 10×3行（最弱・青水色）、第4段 8×1行（中弱・紫）、
-    //   第3段  6×1行（中強・赤、護衛の供給源）、最上段 2体（最強・黄）
-    // 上へ行くほど強い漢字・耐久が高い。画面中央配置。
+    // 構成（上から）：
+    //   最上段 2体（最強・黄、画面上部スレスレ）、第2段 6×1行（中強・赤、護衛の供給源）、
+    //   第3段 8×1行（中弱・紫）、最下段 10×3行（最弱・青水色）
+    // 上へ行くほど強い漢字・耐久が高い（ギャラクシアン準拠）。画面上部寄り配置。
     const G2_SPACING = 1.35; // 漢字が読める間隔（1マス程度）
     const G2_COLORS = { foot:'#5be0ff', guard:'#c866ff', escort:'#ff4d5e', boss:'#ffd23b' };
 
-    // 最下段：10列×3行（最弱・青水色）
-    for(let r=0;r<3;r++) for(let c=0;c<10;c++){
-      const e = makeEnemyBase((c-4.5)*G2_SPACING, r*G2_SPACING, TIER_WEAK);
-      e.color = G2_COLORS.foot; e.pattern='peel'; e.galaxRole='foot';
-      e.diveState='hover'; e.diveDelay=99999; // 待機：外部スケジューラが発動させる
-      enemies.push(e);
-    }
-    // 第4段：8列×1行（中弱・紫）
-    for(let c=0;c<8;c++){
-      const e = makeEnemyBase((c-3.5)*G2_SPACING, 3*G2_SPACING, TIER_WEAK);
-      e.color = G2_COLORS.guard; e.pattern='peel'; e.galaxRole='guard';
-      e.diveState='hover'; e.diveDelay=99999;
-      enemies.push(e);
-    }
-    // 第3段：6列×1行（中強・赤、護衛供給源）
-    for(let c=0;c<6;c++){
-      const e = makeEnemyBase((c-2.5)*G2_SPACING, 4*G2_SPACING, TIER_MEDIUM);
-      e.color = G2_COLORS.escort; e.pattern='peel'; e.galaxRole='escort';
-      e.diveState='hover'; e.diveDelay=99999;
-      enemies.push(e);
-    }
-    // 最上段：2体（最強・黄）：左から2列目・右から2列目
+    // 最上段：2体（最強・黄）：左から2列目・右から2列目、slotY=0（一番上）
     for(let c=0;c<2;c++){
       // 10列の隊列のうち、左から2列目=インデックス1→slotX=(1-4.5)*spacing
       // 右から2列目=インデックス8→slotX=(8-4.5)*spacing
       const ci = c===0 ? 1 : 8;
-      const e = makeEnemyBase((ci-4.5)*G2_SPACING, 5*G2_SPACING, TIER_STRONG);
+      const e = makeEnemyBase((ci-4.5)*G2_SPACING, 0, TIER_STRONG);
       e.color = G2_COLORS.boss; e.pattern='peel'; e.galaxRole='boss';
       e.diveState='hover'; e.diveDelay=99999;
       e.isBossChar = true; // 最強識別フラグ（撃破ボーナス用）
+      enemies.push(e);
+    }
+    // 第2段：6列×1行（中強・赤、護衛供給源）slotY=1
+    for(let c=0;c<6;c++){
+      const e = makeEnemyBase((c-2.5)*G2_SPACING, 1*G2_SPACING, TIER_MEDIUM);
+      e.color = G2_COLORS.escort; e.pattern='peel'; e.galaxRole='escort';
+      e.diveState='hover'; e.diveDelay=99999;
+      enemies.push(e);
+    }
+    // 第3段：8列×1行（中弱・紫）slotY=2
+    for(let c=0;c<8;c++){
+      const e = makeEnemyBase((c-3.5)*G2_SPACING, 2*G2_SPACING, TIER_WEAK);
+      e.color = G2_COLORS.guard; e.pattern='peel'; e.galaxRole='guard';
+      e.diveState='hover'; e.diveDelay=99999;
+      enemies.push(e);
+    }
+    // 最下段：10列×3行（最弱・青水色）slotY=3〜5
+    for(let r=0;r<3;r++) for(let c=0;c<10;c++){
+      const e = makeEnemyBase((c-4.5)*G2_SPACING, (3+r)*G2_SPACING, TIER_WEAK);
+      e.color = G2_COLORS.foot; e.pattern='peel'; e.galaxRole='foot';
+      e.diveState='hover'; e.diveDelay=99999; // 待機：外部スケジューラが発動させる
       enemies.push(e);
     }
     // 編隊スケジューラ初期化
@@ -1871,8 +1872,9 @@ function updateFormationAnchor(dt){
       if(formation.anchorX > rightBound){ formation.anchorX = rightBound; formation.dir = -1; }
       if(formation.anchorX < leftBound){ formation.anchorX = leftBound; formation.dir = 1; }
     }
-    // 上下：4ドット ≈ 4/20 = 0.2 cell。sin波で緩やかに上下
-    formation.anchorY = 3.5 + Math.sin(elapsed/2200) * 0.2;
+    // 上下：4ドット ≈ 4/20 = 0.2 cell。sin波で緩やかに上下。
+    // 最強（slotY=0）が画面上部スレスレに来るよう、アンカーを上部寄り（1.2前後）に配置
+    formation.anchorY = 1.2 + Math.sin(elapsed/2200) * 0.2;
   } else if(stageIndex===2){
     formation.anchorX = cols/2 + Math.sin(elapsed/1400)*3.6 + Math.cos(elapsed/2100)*1.2;
     formation.anchorY = 2 + Math.cos(elapsed/2000)*0.5;
