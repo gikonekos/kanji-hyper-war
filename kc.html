@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>漢字超戦 kcv80</title>
+<title>漢字超戦 kcv81</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -99,7 +99,7 @@
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const KCV_VERSION = 'kcv80';
+const KCV_VERSION = 'kcv81';
 
 /* ---------- 画面 / グリッド設定 ---------- */
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
@@ -708,15 +708,48 @@ function playStage1(lv){
 // ムソルグスキー「展覧会の絵」プロムナードの開始動機（ソ・ファ・シ♭・ド・レ）を引用し、
 // 短調へ傾く独自展開を経て厚い和声で主題回帰する18小節。主旋律(O3)＋内声(O2)＋バス(O1)。
 const STAGE2_SEGMENTS = [
-  // 主題引用：プロムナード動機
+  // ━━ A: 主題呈示（プロムナード動機、C長調）━━
+  // [メロディ O3/O4, 内声 O2, バス O1]  各パート96単位
+  // seg0: 動機前半「ソ・ファ・シ♭・ド」
   ["G5F5#A5O4C5", "O2D5C5F5G5", "O1G5G5C5C5"],
+  // seg1: 動機後半「レ・ソ・...」＋和音の強調
   ["O4D6C3O3#A5G5", "O2G5F5D5C5", "O1C5C5G5G5"],
-  // 独自展開：短調へ傾く
+  // seg2: 動機の反復・少し上方へ（D長調経過）
+  ["O4E5D5#C5D5", "O2#F5E5D5B5", "O1B5B5D5D5"],
+  ["O4#F5E5D5O3B5", "O2B5#A5G5E5", "O1E5E5B5B5"],
+
+  // ━━ B: 展開（短調へ傾く）━━
+  // seg4: aマイナーへ転調
   ["O3A5O4C5O3A5F5", "O2F5A5F5D5", "O1F5F5D5D5"],
+  // seg5: 緊張高まる半音階的進行
   ["O3G5#A5G5E5", "O2E5G5E5C5", "O1C5C5E5E5"],
-  // 回帰：厚い和声で主題再現
-  ["G5F5#A5O4C5", "O2D5C5F5G5", "O1G5G5C5C5"],
-  ["O4D6C3O3G7", "O2G6F3C7", "O1C6C3C7"],
+  // seg6: 内声が動き始める
+  ["O3A5O4C5O3E5A5", "O2A5E5C5A5", "O1A5A5E5E5"],
+  // seg7: 解決を引き延ばす（不安定）
+  ["O3#G5A5#G5E5", "O2E5#G5B5E5", "O1E5E5B5B5"],
+
+  // ━━ C: クライマックス（荘厳・厚い和声）━━
+  // seg8: メロディが1オクターブ跳躍
+  ["O4C5E5G5O5C5", "O2G5E5C5G5", "O1C5C5G5G5"],
+  // seg9: 主題動機が強化されて回帰
+  ["G5F5#A5O5C5", "O2D5C5F5G5", "O1G5G5C5C5"],
+  // seg10: 全パートが厚い和音で盛り上がる
+  ["O5D6C3O4#A5G5", "O2G5F5D5C5", "O1C5C5G5G5"],
+  // seg11: クライマックスの頂点（fffダイナミクス的）
+  ["O5E5D5O4B5G5", "O2G5B5D5G5", "O1G5G5D5D5"],
+  // seg12: 余韻・荘厳な和声で空気を変える
+  ["O4G9", "O2D9", "O1G9"],
+  ["O4G9", "O2B9", "O1D9"],
+
+  // ━━ D: 帰還（自然なループへ）━━
+  // seg14: 静かに主題を準備（テンションを落とす）
+  ["O3G5G5F5E5", "O2E5E5D5C5", "O1C5C5C5G5"],
+  // seg15: ループ直前、冒頭と同じ和声へ戻す
+  ["O3A5O4C5O3A5F5", "O2F5A5F5D5", "O1F5F5D5D5"],
+  // seg16: Gドミナントで冒頭（C長調のソ・ファ・シ♭・ド）を引き寄せる
+  ["O3G5#A5O4C5D5", "O2D5C5G5F5", "O1G5G5G5G5"],
+  // seg17: 終止形→冒頭seg0へ自然につながる
+  ["O4C6C3O3G5F5", "O2G6F3D5C5", "O1C6C3G5G5"],
 ];
 const STAGE2_TEMPO = 110;
 function playStage2(){ playSong(STAGE2_SEGMENTS, STAGE2_TEMPO, true, 0.12); }
@@ -1395,6 +1428,14 @@ function makeEnemyFixed(ch, strokes, slotX, slotY){
 }
 
 let stage0WaveInitialCount = 60;
+// ━━ Stage2（ギャラクシアン風）編隊スケジューラ ━━
+const G2_INITIAL_DIVE_DELAY = 3000; // 最初のダイブまでの猶予
+const G2_DIVE_INTERVAL = 2000;      // 編隊発進間隔（ms）
+const G2_LOOP_THRESHOLD = 4;        // 残り何体以下で全員周回固定にするか
+let g2DiveTimer = G2_INITIAL_DIVE_DELAY;
+let g2DiveCount = 0;        // 発進した編隊の数
+let g2SilenceTimer = 0;     // 最強撃破ボーナス（攻撃停止）残り時間
+let g2LastLoopCount = 0;    // 周回固定移行済みカウント（副作用防止）
 function spawnStage0Wave(){
   // 第一形態：階層編隊（下段=弱、中段=中、上段=強）、横移動→降下
   const colsN = 10, spacing = 1.25;
@@ -1486,16 +1527,51 @@ function setupFormationForStage(){
   if(stageIndex===0){
     spawnStage0Wave(); // 1ウェーブ目。全滅させると2ウェーブ目が出る（合計で旧仕様の約3倍）
   } else if(stageIndex===1){
-    // 第二形態：編隊は降下しない。個々（または複数同時）が急降下→
-    // 画面下から出たら上に戻る（ラップアラウンド）、たまに宙返りで戻る。
-    // 同時攻撃数の上限：ギャラクシアン＝4体
-    const colsN = 10, rowsN=5, spacing=1.15; // 要望対応：3列→5列に増加
-    for(let r=0;r<rowsN;r++) for(let c=0;c<colsN;c++){
-      const tier = r===0?TIER_MEDIUM:TIER_WEAK;
-      const e = makeEnemyBase((c-(colsN-1)/2)*spacing, r*1.1, tier);
-      e.pattern='peel';
+    // ━━ 第二形態：ギャラクシアン風隊列 ━━
+    // 構成（下から）：
+    //   最下段 10×3行（最弱・青水色）、第4段 8×1行（中弱・紫）、
+    //   第3段  6×1行（中強・赤、護衛の供給源）、最上段 2体（最強・黄）
+    // 上へ行くほど強い漢字・耐久が高い。画面中央配置。
+    const G2_SPACING = 1.35; // 漢字が読める間隔（1マス程度）
+    const G2_COLORS = { foot:'#5be0ff', guard:'#c866ff', escort:'#ff4d5e', boss:'#ffd23b' };
+
+    // 最下段：10列×3行（最弱・青水色）
+    for(let r=0;r<3;r++) for(let c=0;c<10;c++){
+      const e = makeEnemyBase((c-4.5)*G2_SPACING, r*G2_SPACING, TIER_WEAK);
+      e.color = G2_COLORS.foot; e.pattern='peel'; e.galaxRole='foot';
+      e.diveState='hover'; e.diveDelay=99999; // 待機：外部スケジューラが発動させる
       enemies.push(e);
     }
+    // 第4段：8列×1行（中弱・紫）
+    for(let c=0;c<8;c++){
+      const e = makeEnemyBase((c-3.5)*G2_SPACING, 3*G2_SPACING, TIER_WEAK);
+      e.color = G2_COLORS.guard; e.pattern='peel'; e.galaxRole='guard';
+      e.diveState='hover'; e.diveDelay=99999;
+      enemies.push(e);
+    }
+    // 第3段：6列×1行（中強・赤、護衛供給源）
+    for(let c=0;c<6;c++){
+      const e = makeEnemyBase((c-2.5)*G2_SPACING, 4*G2_SPACING, TIER_MEDIUM);
+      e.color = G2_COLORS.escort; e.pattern='peel'; e.galaxRole='escort';
+      e.diveState='hover'; e.diveDelay=99999;
+      enemies.push(e);
+    }
+    // 最上段：2体（最強・黄）：左から2列目・右から2列目
+    for(let c=0;c<2;c++){
+      // 10列の隊列のうち、左から2列目=インデックス1→slotX=(1-4.5)*spacing
+      // 右から2列目=インデックス8→slotX=(8-4.5)*spacing
+      const ci = c===0 ? 1 : 8;
+      const e = makeEnemyBase((ci-4.5)*G2_SPACING, 5*G2_SPACING, TIER_STRONG);
+      e.color = G2_COLORS.boss; e.pattern='peel'; e.galaxRole='boss';
+      e.diveState='hover'; e.diveDelay=99999;
+      e.isBossChar = true; // 最強識別フラグ（撃破ボーナス用）
+      enemies.push(e);
+    }
+    // 編隊スケジューラ初期化
+    g2DiveTimer = G2_INITIAL_DIVE_DELAY;
+    g2DiveCount = 0;
+    g2SilenceTimer = 0;
+    g2LastLoopCount = 0;
   } else if(stageIndex===2){
     // 第三形態：画面外の左右からcos/sinで8文字編隊が飛来し、意味の分かる並びを組む
     // ＋周辺にステージ1と同等の数まで通常の護衛敵を配置（フレーズの可読性は保つ）
@@ -1553,41 +1629,94 @@ function updateFormationEnemy(e, dt){
       e.x = targetX; e.y = targetY;
     }
   } else if(e.pattern==='peel'){
-    if(e.diveState==='hover'){
-      e.x = formation.anchorX + e.slotX;
-      e.y = formation.anchorY + e.slotY;
-      e.diveDelay -= dt;
-      const cap = MAX_DIVERS[stageIndex]||3;
-      if(e.diveDelay<=0 && countDiving()<cap){
-        e.diveState='diving'; e.diveT=0;
-        _divingCount++; // 同フレーム内の後続敵がcapを正しく参照できるようインクリメント
+    if(stageIndex===1){
+      // ━━ ギャラクシアン風ダイブ処理 ━━
+      if(e.diveState==='hover'){
+        // 待機中：隊列位置に留まる。弾は撃たない（fireTimerはupdateEnemiesで止める）
+        e.x = formation.anchorX + e.slotX;
+        e.y = formation.anchorY + e.slotY;
+        // diveDelayは外部スケジューラ（updateG2Scheduler）が0にする
+      } else if(e.diveState==='diving'){
+        // 軌道：cos/sinで離脱直後から曲がる。外側に膨らまない
+        e.diveT += dt / (e.diveDuration || 3000);
+        const t = e.diveT;
+        // 基本はslotからの相対移動。sin波で左右に揺れながら画面下へ
+        const amp = 1.5 + Math.abs(e.slotX) * 0.1;
+        const side = (e.slotX >= 0) ? 1 : -1;
+        e.x = e.diveStartX + Math.sin(t * Math.PI * 2) * amp * side;
+        e.y = e.diveStartY + t * (rows + 2 - e.diveStartY + 1);
+        // 画面外（下または横）で上から戻る
+        if(e.y > rows + 1.5 || e.x < -1.5 || e.x > cols + 1.5){
+          // 周回継続：上から戻る
+          e.diveT = 0;
+          e.diveStartX = formation.anchorX + e.slotX;
+          e.diveStartY = -1.5;
+          e.x = e.diveStartX; e.y = e.diveStartY;
+        }
+      } else if(e.diveState==='looping'){
+        // 宙返り：飛行中途でcos/sinで元の隊列位置へ帰還
+        e.loopT += dt / (e.loopDuration || 1800);
+        const t = Math.min(1, e.loopT);
+        const ease = t < 0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; // easeInOut
+        const cx = formation.anchorX + e.slotX;
+        const cy = formation.anchorY + e.slotY;
+        e.x = e.loopStartX + (cx - e.loopStartX) * ease + Math.sin(t * Math.PI * 2) * 2.5 * (e.loopSide||1);
+        e.y = e.loopStartY + (cy - e.loopStartY) * ease - Math.sin(t * Math.PI) * 2.0;
+        if(e.loopT >= 1){
+          e.diveState = 'hover'; e.diveDelay = 99999;
+          e.x = cx; e.y = cy;
+          _divingCount = Math.max(0, _divingCount - 1);
+        }
+      } else if(e.diveState==='circling'){
+        // 残り4体以下：周回固定（隊列に戻らない）
+        e.diveT += dt / (e.diveDuration || 3000);
+        const t = e.diveT;
+        const amp = 1.5 + Math.abs(e.slotX) * 0.1;
+        const side = (e.slotX >= 0) ? 1 : -1;
+        e.x = e.diveStartX + Math.sin(t * Math.PI * 2) * amp * side;
+        e.y = e.diveStartY + t * (rows + 2 - e.diveStartY + 1);
+        if(e.y > rows + 1.5 || e.x < -1.5 || e.x > cols + 1.5){
+          e.diveT = 0;
+          e.diveStartX = formation.anchorX + e.slotX;
+          e.diveStartY = -1.5;
+          e.x = e.diveStartX; e.y = e.diveStartY;
+        }
       }
-    } else if(e.diveState==='diving'){
-      e.diveT += dt/2200;
-      const depth = rows - (formation.anchorY+e.slotY) - 1.5;
-      e.x = formation.anchorX + e.slotX + Math.sin(e.diveT*Math.PI*2)*2.0;
-      e.y = formation.anchorY + e.slotY + e.diveT*Math.max(2,depth);
-      if(e.diveT>=1){
-        // 画面下に抜けた：通常は上から戻る、たまに宙返りで戻る
-        if(Math.random()<0.3){ e.diveState='loop'; e.loopT=0; }
-        else { e.diveState='returning'; e.y=-1.2; e.x=formation.anchorX+e.slotX; }
+    } else {
+      // ━━ Stage0/Stage3 の既存peelロジック（変更なし）━━
+      if(e.diveState==='hover'){
+        e.x = formation.anchorX + e.slotX;
+        e.y = formation.anchorY + e.slotY;
+        e.diveDelay -= dt;
+        const cap = MAX_DIVERS[stageIndex]||3;
+        if(e.diveDelay<=0 && countDiving()<cap){
+          e.diveState='diving'; e.diveT=0;
+          _divingCount++;
+        }
+      } else if(e.diveState==='diving'){
+        e.diveT += dt/2200;
+        const depth = rows - (formation.anchorY+e.slotY) - 1.5;
+        e.x = formation.anchorX + e.slotX + Math.sin(e.diveT*Math.PI*2)*2.0;
+        e.y = formation.anchorY + e.slotY + e.diveT*Math.max(2,depth);
+        if(e.diveT>=1){
+          if(Math.random()<0.3){ e.diveState='loop'; e.loopT=0; }
+          else { e.diveState='returning'; e.y=-1.2; e.x=formation.anchorX+e.slotX; }
+        }
+      } else if(e.diveState==='returning'){
+        e.diveDelay -= dt;
+        const ty = formation.anchorY+e.slotY;
+        e.y += (ty-e.y)*Math.min(1,dt/300);
+        e.x += (formation.anchorX+e.slotX-e.x)*Math.min(1,dt/300);
+        if(Math.abs(e.y-ty)<0.05){ e.diveState='hover'; e.diveDelay=800+Math.random()*2500; }
+      } else if(e.diveState==='loop'){
+        e.loopT += dt/1600;
+        const cx = formation.anchorX + e.slotX;
+        const topY = -1.2, botY = rows+1.2;
+        const ang = e.loopT*Math.PI;
+        e.y = botY - (botY-topY)*e.loopT;
+        e.x = cx + Math.sin(ang)*3.0;
+        if(e.loopT>=1){ e.diveState='returning'; e.y=-1.2; e.x=cx; }
       }
-    } else if(e.diveState==='returning'){
-      // 上から瞬時に戻り、編隊位置へ滑らかに復帰
-      e.diveDelay -= dt;
-      const ty = formation.anchorY+e.slotY;
-      e.y += (ty-e.y)*Math.min(1,dt/300);
-      e.x += (formation.anchorX+e.slotX-e.x)*Math.min(1,dt/300);
-      if(Math.abs(e.y-ty)<0.05){ e.diveState='hover'; e.diveDelay=800+Math.random()*2500; }
-    } else if(e.diveState==='loop'){
-      // 宙返り：画面下から円弧を描いて上まで戻る
-      e.loopT += dt/1600;
-      const cx = formation.anchorX + e.slotX;
-      const topY = -1.2, botY = rows+1.2;
-      const ang = e.loopT*Math.PI; // 0→π
-      e.y = botY - (botY-topY)*e.loopT;
-      e.x = cx + Math.sin(ang)*3.0;
-      if(e.loopT>=1){ e.diveState='returning'; e.y=-1.2; e.x=cx; }
     }
   }
   // 向きの回転をなめらかに補間（斜め移動→正面停止時に瞬時スナップしていた不具合の修正）
@@ -1603,6 +1732,94 @@ function updateFormationEnemy(e, dt){
     while(diff > Math.PI) diff -= Math.PI*2;
     while(diff < -Math.PI) diff += Math.PI*2;
     e.rotAngle += diff * Math.min(1, dt/220); // 約220msで追従、正面へもなめらかに戻る
+  }
+}
+
+function updateG2Scheduler(dt){
+  // ギャラクシアン風ダイブ編隊スケジューラ
+  // 護衛2体が先行し、最強がそのルートをなぞる（護衛→最強の順）
+  if(stageIndex !== 1 || approachActive) return;
+
+  // 攻撃停止ボーナス（最強撃破後2秒間）
+  if(g2SilenceTimer > 0){ g2SilenceTimer -= dt; return; }
+
+  // 残り4体以下：全員を周回固定（circling）にする
+  const hovering = enemies.filter(e=>e.pattern==='peel' && e.diveState==='hover');
+  if(enemies.filter(e=>e.pattern==='peel').length <= G2_LOOP_THRESHOLD && g2LastLoopCount < enemies.length){
+    g2LastLoopCount = enemies.length;
+    hovering.forEach(e=>{
+      e.diveState='circling';
+      e.diveT=0;
+      e.diveStartX = e.x; e.diveStartY = e.y;
+      e.diveDuration = 2800 + Math.random()*600;
+      _divingCount++;
+    });
+    return;
+  }
+
+  g2DiveTimer -= dt;
+  if(g2DiveTimer > 0) return;
+  g2DiveTimer = G2_DIVE_INTERVAL + Math.random()*500;
+
+  // 編隊選択：護衛（escort）から2体、最強（boss）から1体を選ぶ
+  // 最強が生きていれば含める、打ち漏らしで逃げっぱなしなら護衛のみ
+  const escortPool = enemies.filter(e=>e.galaxRole==='escort' && e.diveState==='hover');
+  const bossPool   = enemies.filter(e=>e.galaxRole==='boss'   && e.diveState==='hover');
+
+  if(escortPool.length === 0 && bossPool.length === 0) return;
+
+  // 護衛を最大2体選ぶ（穴あき可：残存分のみ）
+  const escorts = escortPool.slice(0, 2);
+  const leader  = bossPool.length > 0 ? bossPool[0] : null;
+
+  // 護衛先行でダイブ開始、最強は護衛の後に続く（dtタイマーで遅延）
+  const side = (Math.random() < 0.5) ? 1 : -1;
+  const dur = 2800 + Math.random()*600;
+
+  function scheduleDive(e, delay){
+    if(!e || e.diveState !== 'hover') return;
+    e._diveStartDelay = delay;
+    e._pendingDiveDur = dur;
+    e._pendingDiveSide = side;
+  }
+
+  escorts.forEach((e, i) => scheduleDive(e, i * 200));
+  if(leader) scheduleDive(leader, escorts.length * 200 + 400);
+  g2DiveCount++;
+}
+
+function updateG2Pending(dt){
+  // launchDiveの遅延をdt積算で処理（setTimeoutの代わり）
+  for(const e of enemies){
+    if(e._diveStartDelay !== undefined){
+      e._diveStartDelay -= dt;
+      if(e._diveStartDelay <= 0){
+        delete e._diveStartDelay;
+        if(e.diveState !== 'hover') continue; // 既に撃破/ダイブ済み
+        e.diveState = 'diving';
+        e.diveT = 0;
+        e.diveStartX = e.x;
+        e.diveStartY = e.y;
+        e.diveDuration = e._pendingDiveDur || 3000;
+        _divingCount++;
+        // 宙返りスケジュール
+        if(e.galaxRole !== 'boss' && Math.random() < 0.25){
+          e._loopAfterMs = 800 + Math.random()*1200;
+          e._loopSide = e._pendingDiveSide || 1;
+        }
+        delete e._pendingDiveDur; delete e._pendingDiveSide;
+      }
+    }
+    if(e._loopAfterMs !== undefined && e.diveState === 'diving'){
+      e._loopAfterMs -= dt;
+      if(e._loopAfterMs <= 0){
+        e.loopStartX = e.x; e.loopStartY = e.y;
+        e.loopT = 0; e.loopDuration = 1600 + Math.random()*400;
+        e.loopSide = e._loopSide || 1;
+        e.diveState = 'looping';
+        delete e._loopAfterMs; delete e._loopSide;
+      }
+    }
   }
 }
 
@@ -1643,8 +1860,19 @@ function updateFormationAnchor(dt){
       formation.anchorY = Math.min(formation.anchorY + formation.stepDown, MAX_FORMATION_ANCHOR_Y);
     }
   } else if(stageIndex===1){
-    formation.anchorX = cols/2 + Math.sin(elapsed/1800)*3;
-    formation.anchorY = 2 + Math.sin(elapsed/2600)*0.6;
+    // ギャラクシアン風：左右は画面いっぱい（anchorXでペースト）、上下は4ドット（≈0.2cell）相当のsin波
+    const peelEnemies = enemies.filter(e=>e.pattern==='peel' && e.diveState==='hover');
+    if(peelEnemies.length>0){
+      const maxSlotX = Math.max(...peelEnemies.map(e=>Math.abs(e.slotX)));
+      const leftBound  = maxSlotX + 0.8;
+      const rightBound = cols - maxSlotX - 0.8;
+      const speed = 0.018 * (cols/24); // 画面幅に正規化した移動速度
+      formation.anchorX += formation.dir * speed * dt/1000 * cols;
+      if(formation.anchorX > rightBound){ formation.anchorX = rightBound; formation.dir = -1; }
+      if(formation.anchorX < leftBound){ formation.anchorX = leftBound; formation.dir = 1; }
+    }
+    // 上下：4ドット ≈ 4/20 = 0.2 cell。sin波で緩やかに上下
+    formation.anchorY = 3.5 + Math.sin(elapsed/2200) * 0.2;
   } else if(stageIndex===2){
     formation.anchorX = cols/2 + Math.sin(elapsed/1400)*3.6 + Math.cos(elapsed/2100)*1.2;
     formation.anchorY = 2 + Math.cos(elapsed/2000)*0.5;
@@ -1843,6 +2071,11 @@ function damageEnemy(e, isBoss){
 
     addParticles(e.x,e.y, isBoss?18:8, '#ff3b3b');
     addPopup(e.x,e.y,'連撃'+kanjiNum(combo),'#ffee33');
+    // ギャラクシアン風：最強（黄）撃破で2秒間攻撃停止ボーナス
+    if(stageIndex===1 && e.isBossChar){
+      g2SilenceTimer = 2000;
+      addPopup(e.x, e.y-1, '撃破！', '#ffd23b');
+    }
     SFX.destroy();
     if(isBoss){
       bossActive=null;
@@ -2407,12 +2640,17 @@ function updateEnemies(dt){
   _divingCount = 0;
   for(const e of enemies){ if(e.pattern==='peel' && e.diveState!=='hover') _divingCount++; }
   updateFormationAnchor(dt);
+  if(stageIndex===1){ updateG2Scheduler(dt); updateG2Pending(dt); } // ギャラクシアン風編隊スケジューラ
   enemies.forEach(e=>updateFormationEnemy(e,dt));
   for(let i=enemies.length-1;i>=0;i--){
     const e=enemies[i];
     if(e.hitFlash>0) e.hitFlash-=dt;
-    e.fireTimer -= dt;
-    if(e.fireTimer<=0 && e.x>0 && e.x<cols && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
+    // ギャラクシアン風：待機中（hover）は弾を撃たない。攻撃停止ボーナス中も撃たない
+    const suppressFire = stageIndex===1 && (e.diveState==='hover' || g2SilenceTimer>0);
+    if(!suppressFire){
+      e.fireTimer -= dt;
+      if(e.fireTimer<=0 && e.x>0 && e.x<cols && e.y>0 && e.y<rows-1 && !stageGraceActive){ fireEnemyBullet(e,1); e.fireTimer=2000+Math.random()*2200; }
+    }
     if(e.pattern==='march' && e.y>rows+2){ enemies.splice(i,1); combo=0; }
     if(e.pattern==='approach' && e.y>rows+2){ enemies.splice(i,1); }
     if(e.pattern==='advFormation' && e.y>rows+2){ enemies.splice(i,1); }
